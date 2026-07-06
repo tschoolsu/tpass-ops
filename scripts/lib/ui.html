@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tpass 控制台</title>
+<style>
+  /* Bright Pop Tech / Neobrutalism，light-only，OKLCH（照 tpass-portal/docs/design.md） */
+  :root {
+    --bg: oklch(0.98 0.01 100);
+    --fg: oklch(0.22 0.02 260);
+    --primary: oklch(0.85 0.19 150);
+    --accent: oklch(0.82 0.14 230);
+    --rose: oklch(0.84 0.12 20);
+    --violet: oklch(0.85 0.11 300);
+    --amber: oklch(0.88 0.14 85);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.55 0.02 260);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg); color: var(--fg);
+    font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Noto Sans TC", sans-serif;
+  }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.5px; }
+  .sub { color: var(--muted); font-family: ui-monospace, "Geist Mono", monospace; font-size: 12px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card); border: 2px solid var(--fg); border-radius: 14px;
+    box-shadow: 5px 5px 0 0 var(--fg); padding: 16px;
+    transition: transform .1s, box-shadow .1s;
+  }
+  .card:hover { transform: translate(-2px,-2px); box-shadow: 7px 7px 0 0 var(--fg); }
+  .card.disabled { opacity: .55; }
+  .cardTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .svcName { font-weight: 800; font-size: 17px; }
+  .badge {
+    font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700;
+    border: 2px solid var(--fg); border-radius: 999px; padding: 2px 9px;
+  }
+  .up   { background: var(--primary); }
+  .downb{ background: var(--card); color: var(--muted); }
+  .meta { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); margin: 10px 0 12px; line-height: 1.7; }
+  .meta a { color: inherit; }
+  .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font: inherit; font-weight: 700; font-size: 13px; cursor: pointer;
+    border: 2px solid var(--fg); border-radius: 10px; padding: 6px 12px;
+    background: var(--card); box-shadow: 3px 3px 0 0 var(--fg);
+    transition: transform .08s, box-shadow .08s;
+  }
+  button:hover { transform: translate(-1px,-1px); box-shadow: 4px 4px 0 0 var(--fg); }
+  button:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 0 var(--fg); }
+  .bDev { background: var(--primary); } .bCheck { background: var(--amber); }
+  .bDeploy { background: var(--rose); } .bLogs { background: var(--accent); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 26px; }
+  .toolbar button { background: var(--violet); }
+  #out {
+    margin-top: 26px; background: var(--fg); color: oklch(0.95 0.02 150);
+    border: 2px solid var(--fg); border-radius: 14px; box-shadow: 5px 5px 0 0 oklch(0.7 0.05 260);
+    padding: 14px 16px; min-height: 130px; max-height: 46vh; overflow: auto;
+    font-family: ui-monospace, "Geist Mono", Menlo, monospace; font-size: 12px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  #outHead { display: flex; align-items: center; justify-content: space-between; margin-top: 26px; }
+  #outHead + #out { margin-top: 10px; }
+  #outTitle { font-family: ui-monospace, monospace; font-weight: 700; font-size: 13px; }
+  #stopBtn { background: var(--rose); display: none; }
+</style>
+</head>
+<body>
+  <h1>tpass 控制台 🎛</h1>
+  <div class="sub" id="rootLine">services.json 驅動 · 只綁 127.0.0.1</div>
+
+  <div class="toolbar">
+    <button onclick="run(['status'])">📊 全域狀態（本機 + 主機 pm2）</button>
+    <button onclick="run(['check','all'])">🧪 全部檢查（lint + tsc）</button>
+    <button onclick="run(['build','all'])">🔨 全部 build</button>
+    <button onclick="confirmRun(['deploy','all'],'確定部署全部服務到正式主機？')">🚀 全部部署</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div id="outHead">
+    <span id="outTitle">輸出</span>
+    <button id="stopBtn" onclick="stopJob()">⏹ 停止</button>
+  </div>
+  <div id="out">（按上面的按鈕開始）</div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const api = (p, opts) => fetch(p + (p.includes("?") ? "&" : "?") + "token=" + TOKEN, opts);
+let curJob = null, curSrc = null;
+
+async function loadRegistry() {
+  const r = await (await api("/api/registry")).json();
+  document.getElementById("rootLine").textContent = r.root + " · services.json 驅動 · 只綁 127.0.0.1";
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  for (const s of r.services) {
+    const card = document.createElement("div");
+    card.className = "card" + (s.enabled ? "" : " disabled");
+    card.innerHTML = `
+      <div class="cardTop">
+        <span class="svcName">${s.name}</span>
+        <span class="badge ${s.devUp ? "up" : "downb"}">${s.enabled ? (s.devUp ? "dev 🟢" : "dev ⚪") : "停用"}</span>
+      </div>
+      <div class="meta">
+        ${s.dir} · :${s.port}${s.db ? " · 🗄 " + s.db : ""}${s.deployed ? "" : " · <b>未上線</b>"}<br>
+        <a href="${s.devUrl}" target="_blank">${s.devUrl}</a>
+      </div>
+      <div class="btns">
+        <button class="bDev" onclick="run(['dev','${s.id}'])">▶ dev</button>
+        <button class="bCheck" onclick="run(['check','${s.id}'])">🧪 check</button>
+        <button class="bLogs" onclick="run(['logs','${s.id}'])">📜 logs</button>
+        ${s.deployed ? `<button class="bDeploy" onclick="confirmRun(['deploy','${s.id}'],'部署 ${s.id} 到正式主機？')">🚀 deploy</button>` : ""}
+      </div>`;
+    grid.appendChild(card);
+  }
+}
+
+function confirmRun(argv, msg) { if (window.confirm(msg)) run(argv); }
+
+async function run(argv) {
+  const out = document.getElementById("out");
+  document.getElementById("outTitle").textContent = "輸出 — tpass " + argv.join(" ");
+  out.textContent = "";
+  const r = await (await api("/api/run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ argv }),
+  })).json();
+  if (!r.id) { out.textContent = "✗ " + (r.error || "啟動失敗"); return; }
+  curJob = r.id;
+  document.getElementById("stopBtn").style.display = "inline-block";
+  if (curSrc) curSrc.close();
+  curSrc = new EventSource("/api/stream/" + r.id + "?token=" + TOKEN);
+  curSrc.onmessage = (e) => {
+    out.textContent += JSON.parse(e.data) + "\n";
+    out.scrollTop = out.scrollHeight;
+  };
+  curSrc.addEventListener("done", () => {
+    document.getElementById("stopBtn").style.display = "none";
+    curSrc.close();
+    loadRegistry(); // 動作完刷新卡片狀態（dev 起停會改變 port 探測）
+  });
+}
+
+async function stopJob() {
+  if (curJob) await api("/api/stop/" + curJob, { method: "POST" });
+}
+
+loadRegistry();
+setInterval(loadRegistry, 15000);
+</script>
+</body>
+</html>

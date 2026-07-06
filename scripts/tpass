@@ -1,0 +1,139 @@
+#!/usr/bin/env node
+// tpass —— tschool 生態系唯一的 ops 入口。
+// 服務清單 / port / 目錄的唯一真相 = services.json（scripts/lib/registry.mjs 載入）。
+// 不帶參數 = 互動選單（不用背指令）。
+import { createInterface } from "node:readline/promises";
+import { enabledServices, services } from "./lib/registry.mjs";
+
+const HELP = `tpass —— tschool 平台開發/部署工具（不帶參數進互動選單）
+
+本機開發
+  tpass dev [svc|all]        內層 dev 迴圈（HTTPS + HMR，SSO 全流程可測）
+  tpass check [svc|all]      push 前把關：lint + tsc --noEmit
+  tpass check env [svc|all]  驗 .env.local 必填 key（真相 = src/config REQUIRED）
+  tpass build [svc|all]      npm run build
+  tpass start [svc|all]      production smoke：build + start:https
+  tpass setup                一次性環境準備（mkcert / npm install / 金鑰 / DB，冪等）
+
+資料庫（本機）
+  tpass db setup [svc]       建 role+db、補 DATABASE_URL、prisma generate+套 schema
+  tpass db reset <svc>       drop 後重建（要求輸入服務 id 確認）
+
+主機（全部經 ssh，主機上不裝任何工具）
+  tpass deploy [svc|all]     部署（主機端 git pull + build + pm2 reload）
+  tpass status               本機 port 探測 + 主機 pm2 狀態
+  tpass logs <svc> [-f]      看主機 log（-f 跟隨）
+
+其他
+  tpass new [id]             登記新服務（寫 services.json + 印人工步驟清單）
+  tpass ui                   開本機管理儀表板（瀏覽器 GUI）
+  tpass list                 列出註冊表`;
+
+function list() {
+  for (const s of services) {
+    const db = s.db ? `db=${s.db.name}(${s.db.strategy})` : "no-db";
+    const flags = `${s.enabled ? "" : " [停用]"}${s.deployed ? "" : " [未部署]"}`;
+    console.log(`  ${s.id.padEnd(10)} ${String(s.port).padEnd(5)} ${s.dir.padEnd(28)} ${db}${flags}`);
+  }
+}
+
+async function pickService(rl, { allowAll = true } = {}) {
+  const opts = enabledServices();
+  opts.forEach((s, i) => console.log(`  ${i + 1}. ${s.id}（${s.name}）`));
+  if (allowAll) console.log(`  ${opts.length + 1}. 全部`);
+  const n = Number((await rl.question("選服務： ")).trim());
+  if (allowAll && n === opts.length + 1) return "all";
+  const s = opts[n - 1];
+  if (!s) {
+    console.log("無效選項");
+    process.exit(2);
+  }
+  return s.id;
+}
+
+async function menu() {
+  console.log("tpass 互動選單 —— 想做什麼？\n");
+  const actions = [
+    ["啟動本機開發（dev，HMR）", async (rl) => (await import("./lib/dev.mjs")).dev(await pickService(rl))],
+    ["push 前檢查（lint + tsc）", async (rl) => (await import("./lib/check.mjs")).check(await pickService(rl))],
+    ["production smoke（build + start:https）", async (rl) => (await import("./lib/build.mjs")).start(await pickService(rl))],
+    ["部署到主機", async (rl) => (await import("./lib/deploy.mjs")).deploy(await pickService(rl))],
+    ["看服務狀態（本機 + 主機）", async () => (await import("./lib/deploy.mjs")).status()],
+    ["看主機 log", async (rl) => (await import("./lib/deploy.mjs")).logs(await pickService(rl, { allowAll: false }))],
+    ["本機資料庫 setup", async (rl) => (await import("./lib/db.mjs")).dbSetup(await pickService(rl, { allowAll: false }))],
+    ["一次性環境準備（setup）", async () => (await import("./lib/build.mjs")).setup()],
+    ["登記新服務（new）", async () => (await import("./lib/scaffold.mjs")).newService()],
+    ["開管理儀表板（ui）", async () => (await import("./lib/ui.mjs")).ui()],
+  ];
+  actions.forEach(([label], i) => console.log(`  ${i + 1}. ${label}`));
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const n = Number((await rl.question("\n選項： ")).trim());
+  const action = actions[n - 1];
+  if (!action) {
+    console.log("無效選項");
+    process.exit(2);
+  }
+  await action[1](rl);
+  rl.close();
+}
+
+const [cmd, ...args] = process.argv.slice(2);
+switch (cmd) {
+  case undefined:
+    await menu();
+    break;
+  case "dev":
+    await (await import("./lib/dev.mjs")).dev(args[0]);
+    break;
+  case "check":
+    if (args[0] === "env") (await import("./lib/check.mjs")).checkEnvCmd(args[1]);
+    else await (await import("./lib/check.mjs")).check(args[0]);
+    break;
+  case "build":
+    await (await import("./lib/build.mjs")).build(args[0]);
+    break;
+  case "start":
+    await (await import("./lib/build.mjs")).start(args[0]);
+    break;
+  case "setup":
+    await (await import("./lib/build.mjs")).setup();
+    break;
+  case "db":
+    if (args[0] === "setup") {
+      const { dbSetup } = await import("./lib/db.mjs");
+      const { dbServices } = await import("./lib/registry.mjs");
+      for (const id of args[1] ? [args[1]] : dbServices().map((s) => s.id)) await dbSetup(id);
+    } else if (args[0] === "reset") await (await import("./lib/db.mjs")).dbReset(args[1]);
+    else {
+      console.error("用法: tpass db setup [svc] | tpass db reset <svc>");
+      process.exit(2);
+    }
+    break;
+  case "deploy":
+    (await import("./lib/deploy.mjs")).deploy(args[0] ?? "all");
+    break;
+  case "status":
+    await (await import("./lib/deploy.mjs")).status();
+    break;
+  case "logs":
+    (await import("./lib/deploy.mjs")).logs(args.filter((a) => a !== "-f")[0], args.includes("-f"));
+    break;
+  case "new":
+    await (await import("./lib/scaffold.mjs")).newService(args[0]);
+    break;
+  case "ui":
+    await (await import("./lib/ui.mjs")).ui();
+    break;
+  case "list":
+    list();
+    break;
+  case "help":
+  case "-h":
+  case "--help":
+    console.log(HELP);
+    break;
+  default:
+    console.error(`未知指令「${cmd}」\n`);
+    console.log(HELP);
+    process.exit(2);
+}

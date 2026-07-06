@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# 伺服器上的部署腳本。放在 /srv/tschool/deploy/，三 repo 與本檔同層。
-# 對指定服務： git pull →（鎖檔變動才）npm ci → npm run build →
-#              tpass-form 額外 prisma migrate deploy → pm2 reload（zero-downtime）。
-# 用法： deploy.sh [auth|portal|form|msg|appeals|all]   （預設 all）
+# 伺服器上的部署腳本。放在 ~/tpass/deploy/（~/tpass = tpass-ops repo clone，各服務 repo 同層）。
+# 服務清單 / 目錄 / DB 策略全部來自 ../services.json（唯一真相），不得在此硬編碼。
+# 對指定服務： git pull →（鎖檔變動才）npm ci → prisma generate → npm run build →
+#              依 db.strategy 套 schema → pm2 startOrReload（zero-downtime；新服務自動首啟）。
+# 用法： deploy.sh [<svc>|all]   （預設 all = services.json 中 deployed:true 者）
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
+REG="$ROOT/services.json"
 
-svc_dir() { case "$1" in auth) echo tpass-auth;; portal) echo tpass-portal;; form) echo tpass-form;; msg) echo tpass-cross_grade_messages;; appeals) echo tpass-appeals;; esac; }
+[ -f "$REG" ] || { echo "❌ 找不到 $REG（~/tpass 尚未 git 化？見 docs/MERGE-AND-DEPLOY.md）" >&2; exit 1; }
+
+# 從註冊表查欄位（node 一定在——主機本來就跑 Next）
+svc_dir()      { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.dir:''" "$1"; }
+svc_strategy() { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);(s&&s.db&&s.db.strategy)||''" "$1"; }
+deployed_ids() { node -p "require('$REG').services.filter(s=>s.deployed).map(s=>s.id).join(' ')"; }
 
 # .env.local 必填 key 檢查。git pull 後、build 前先擋。
 # 必填清單的真相來源＝各 config/*.ts 的 REQUIRED 陣列（跟 runtime 同一份，不會漂移），
@@ -44,7 +51,12 @@ check_env() {
 
 deploy_one() {
   s="$1"
-  dir="$ROOT/$(svc_dir "$s")"
+  rel="$(svc_dir "$s")"
+  if [ -z "$rel" ]; then
+    echo "❌ services.json 裡沒有服務「$s」" >&2
+    exit 2
+  fi
+  dir="$ROOT/$rel"
   echo "==================== deploy $s ($dir) ===================="
   cd "$dir"
 
@@ -67,34 +79,40 @@ deploy_one() {
     echo "   依賴未變，略過 npm ci"
   fi
 
+  strategy="$(svc_strategy "$s")"
+
   # Prisma CLI 只讀 .env，不讀 .env.local；先把 .env.local 匯進環境再跑。
   # generate 必須在 build 之前：schema.prisma 一改、型別就變，build 的 tsc 檢查靠的是
   # node_modules 裡「上次生成」的 client。這步不能靠 npm ci 順便帶到——
-  # form/msg 都沒有 postinstall 掛 prisma generate，且 package-lock.json 沒變時
-  # npm ci 整個會被跳過（見上面），schema 改了也不會重新生成，build 就會拿舊型別去對新 schema。
-  if [ "$s" = "form" ] || [ "$s" = "msg" ] || [ "$s" = "appeals" ]; then
+  # 沒有 postinstall 掛 prisma generate，且 package-lock.json 沒變時 npm ci 整個被跳過，
+  # schema 改了也不會重新生成，build 就會拿舊型別去對新 schema。
+  if [ -n "$strategy" ]; then
     echo "   prisma generate（確保 client 型別跟得上 schema.prisma）"
     ( set -a; . "$dir/.env.local"; set +a; npx prisma generate )
   fi
 
   npm run build
 
-  # form/appeals 無 migrations 目錄 → db push；msg 有 migrations → migrate deploy。
-  if [ "$s" = "form" ] || [ "$s" = "appeals" ]; then
-    echo "   $s → prisma db push（無 migrations 目錄）"
-    ( set -a; . "$dir/.env.local"; set +a; npm run db:push )
-  elif [ "$s" = "msg" ]; then
-    echo "   msg → prisma migrate deploy"
-    ( set -a; . "$dir/.env.local"; set +a; npx prisma migrate deploy )
-  fi
+  # 套 schema：策略由 services.json 的 db.strategy 決定（migrate = 有 migrations 歷史）。
+  case "$strategy" in
+    migrate)
+      echo "   $s → prisma migrate deploy"
+      ( set -a; . "$dir/.env.local"; set +a; npx prisma migrate deploy )
+      ;;
+    push)
+      echo "   $s → prisma db push（無 migrations 目錄）"
+      ( set -a; . "$dir/.env.local"; set +a; npm run db:push )
+      ;;
+  esac
 
-  pm2 reload "$s"
+  # startOrReload：既有 app zero-downtime reload；registry 新增的服務自動首次啟動。
+  pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.js" --only "$s"
   echo "   ✅ $s 部署完成"
 }
 
 target="${1:-all}"
-case "$target" in
-  auth|portal|form|msg|appeals) deploy_one "$target" ;;
-  all) for s in auth portal form msg appeals; do deploy_one "$s"; done ;;
-  *) echo "用法: $0 [auth|portal|form|msg|appeals|all]" >&2; exit 2 ;;
-esac
+if [ "$target" = "all" ]; then
+  for s in $(deployed_ids); do deploy_one "$s"; done
+else
+  deploy_one "$target"
+fi
