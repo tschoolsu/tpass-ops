@@ -1,0 +1,36 @@
+# 頂層 = tpass-ops repo。只追蹤 ops 層（scripts / deploy / 這些 md）。
+# 策略：預設全部忽略，再白名單 ops 檔。這樣任何新加入的服務子 repo
+# （各自有 .git）或雜物都「自動安全」，不可能被誤 commit。
+
+# --- 預設忽略一切 ---
+/*
+
+# --- 白名單：ops 層才追蹤 ---
+!/.gitignore
+!/AGENTS.md
+!/CLAUDE.md
+!/DEV-SOP.md
+!/GIT-REPOS.md
+!/scripts/
+!/deploy/
+
+# --- deploy/ 內的主機連線機密不追蹤（其餘 deploy/ 檔照追蹤）---
+/deploy/host.env
+
+# --- 誤建目錄，含機密；保留不刪但永不進 git（已被上面 /* 忽略，明列一次求明確）---
+/~/
+
+# --- 保險絲：任何 .env / 憑證 / 私鑰即使誤放別處也擋下 ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.ppk
+.DS_Store
+*.log

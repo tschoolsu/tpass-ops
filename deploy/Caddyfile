@@ -1,0 +1,29 @@
+# Caddy 反向代理：聲 :443、自動 Let's Encrypt、依 hostname 分流到 PM2 的內部 port。
+# app 本身只跑純 HTTP（next start，綁 127.0.0.1），TLS 全交給 Caddy。
+#
+# 部署（伺服器上）：
+#   把本檔放到 /etc/caddy/Caddyfile（或 import 進去）
+#   export TSCHOOL_DOMAIN=tschool.tp.edu.tw   # 換成正式根網域
+#   caddy reload --config /etc/caddy/Caddyfile
+#
+# DNS：auth. / portal. / form.<TSCHOOL_DOMAIN> 三個 A record 指向本機。
+
+auth.{$TSCHOOL_DOMAIN:tschool.tp.edu.tw} {
+	reverse_proxy 127.0.0.1:3000
+}
+
+portal.{$TSCHOOL_DOMAIN:tschool.tp.edu.tw} {
+	reverse_proxy 127.0.0.1:3001
+}
+
+form.{$TSCHOOL_DOMAIN:tschool.tp.edu.tw} {
+	reverse_proxy 127.0.0.1:3002
+}
+
+msg.{$TSCHOOL_DOMAIN:tschool.tp.edu.tw} {
+	reverse_proxy 127.0.0.1:3003
+}
+
+appeals.{$TSCHOOL_DOMAIN:tschool.tp.edu.tw} {
+	reverse_proxy 127.0.0.1:3004
+}
