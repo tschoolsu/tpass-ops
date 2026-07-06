@@ -11,8 +11,10 @@
 !/CLAUDE.md
 !/DEV-SOP.md
 !/GIT-REPOS.md
+!/services.json
 !/scripts/
 !/deploy/
+!/docs/
 
 # --- deploy/ 內的主機連線機密不追蹤（其餘 deploy/ 檔照追蹤）---
 /deploy/host.env
