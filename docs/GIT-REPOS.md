@@ -9,10 +9,10 @@
 5. https://github.com/YC815/tpass-appeals — 申訴（尚未上線主機）
 6. https://github.com/YC815/tpass-directory — **已封存（2026-07-05），不部署**
 
-## ops repo（頂層本身，只追蹤 services.json / scripts / deploy / docs / SOP）
+## ops repo（頂層本身，只追蹤 services.json / scripts / deploy / docs / agent md）
 
 - https://github.com/YC815/tpass-ops （private）
-- 主機 `~/tpass` 是本 repo 的 clone（git 化步驟見 `docs/MERGE-AND-DEPLOY.md §2`）
+- 主機 `~/tpass` 是本 repo 的 clone（git 化步驟見同目錄 `MERGE-AND-DEPLOY.md §2`）
 
 ## 連部署主機
 

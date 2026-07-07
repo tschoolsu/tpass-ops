@@ -1,6 +1,7 @@
-# 頂層 = tpass-ops repo。只追蹤 ops 層（scripts / deploy / 這些 md）。
+# 頂層 = tpass-ops repo。只追蹤 ops 層（services.json / scripts / deploy / docs / agent md）。
 # 策略：預設全部忽略，再白名單 ops 檔。這樣任何新加入的服務子 repo
 # （各自有 .git）或雜物都「自動安全」，不可能被誤 commit。
+# 頂層 md 只留 agent 必要的（AGENTS.md + 指標 CLAUDE.md）；其餘文檔一律在 docs/。
 
 # --- 預設忽略一切 ---
 /*
@@ -9,8 +10,6 @@
 !/.gitignore
 !/AGENTS.md
 !/CLAUDE.md
-!/DEV-SOP.md
-!/GIT-REPOS.md
 !/services.json
 !/scripts/
 !/deploy/
