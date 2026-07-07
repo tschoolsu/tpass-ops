@@ -30,7 +30,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
 | `services.json` | **服務註冊表（唯一真相）** | — | id/目錄/子網域/port/DB 策略全在這；所有工具從它讀，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
-| `docs/` | ops 文檔 | — | ONBOARDING（流程）/ DEPLOY(主機) / SERVICE-TEMPLATE / SECURITY-REVIEW / MERGE-AND-DEPLOY。 |
+| `docs/` | ops 文檔（頂層只留 agent md，其餘全在此） | — | ONBOARDING（流程）/ DEPLOY(主機) / SERVICE-TEMPLATE / SECURITY-REVIEW / MERGE-AND-DEPLOY / GIT-REPOS（repo 清單）。 |
 
 > ⚠️ 每個服務子專案各有自己的 `.git`。頂層 `tschool/` 是獨立的 **`tpass-ops`** git repo，
 > 只追蹤 ops 層（`services.json`、`scripts/`、`deploy/`、`docs/`、這些 md）。
