@@ -10,6 +10,7 @@ import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ROOT, devUrl, prodUrl, services } from "./registry.mjs";
+import { envGetJson, setEnv, unsetEnv } from "./env.mjs";
 
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 const TPASS = join(LIB_DIR, "..", "tpass");
@@ -146,6 +147,41 @@ export async function ui() {
         res, 200,
         [...jobs.entries()].map(([id, j]) => ({ id, argv: j.argv, done: j.done }))
       );
+    }
+
+    // 遠端 env（值含 = / 密文，過不了 /api/run 白名單 regex，故走專用端點）。
+    // GET：讀（預設遮罩，?reveal=1 顯示密文）。POST {key,value|unset}：寫（值不進 argv、不進 shell）。
+    if (url.pathname.startsWith("/api/env/")) {
+      const id = decodeURIComponent(url.pathname.slice("/api/env/".length));
+      if (!services.some((s) => s.id === id)) return json(res, 404, { error: "未知服務" });
+
+      if (req.method === "GET") {
+        try {
+          return json(res, 200, envGetJson(id, { reveal: url.searchParams.get("reveal") === "1" }));
+        } catch (e) {
+          return json(res, 500, { error: e.message });
+        }
+      }
+      if (req.method === "POST") {
+        let body = "";
+        req.on("data", (d) => (body += d));
+        req.on("end", () => {
+          let p;
+          try {
+            p = JSON.parse(body);
+          } catch {
+            return json(res, 400, { error: "bad body" });
+          }
+          try {
+            if (p.unset) unsetEnv(id, p.key);
+            else setEnv(id, p.key, String(p.value ?? ""));
+            return json(res, 200, { ok: true });
+          } catch (e) {
+            return json(res, 400, { error: e.message });
+          }
+        });
+        return;
+      }
     }
 
     json(res, 404, { error: "not found" });

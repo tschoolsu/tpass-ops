@@ -2,10 +2,13 @@
 // 慣例：每服務獨立 role + db，名稱 = services.json 的 db.user / db.name（t_<id>）。
 // 注意：Prisma CLI 只讀 .env，不讀 .env.local —— 跑 prisma 前先把 .env.local 匯入環境。
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { byId, dbUrl, repoDir } from "./registry.mjs";
+import { ssh } from "./deploy.mjs";
+import { setEnv } from "./env.mjs";
 import { commandExists, run } from "./sh.mjs";
 
 function psql(sql) {
@@ -117,4 +120,53 @@ export async function dbReset(id) {
   await ensurePostgresRunning();
   spawnSync("dropdb", ["--if-exists", s.db.name], { stdio: "inherit" });
   await dbSetup(id);
+}
+
+// 遠端建庫：同一 PG 實例開 role+db（冪等），生成密碼寫進遠端 .env.local 的 DATABASE_URL。
+// 免每次 root —— 前提是 deploy 帳號經 peer auth 對到有 CREATEDB/CREATEROLE 的 PG 角色
+// （一次性 root 授權見 docs/DEPLOY.md）。dbSetup 那套 SQL 原封搬過來，只是把本機 spawnSync 換成 ssh。
+export function dbCreateRemote(id) {
+  const s = byId(id);
+  if (!s.db) {
+    console.error(`✗ ${s.id} 在 services.json 沒有 db 設定（db:null）`);
+    process.exit(2);
+  }
+  const { user, name } = s.db;
+  const q = (sql) => ssh(`psql -d postgres -tAc ${JSON.stringify(sql)}`, { capture: true });
+  const exec = (sql) => ssh(`psql -d postgres -c ${JSON.stringify(sql)}`);
+
+  console.log(`== 遠端 db create ${s.id}（role=${user} db=${name}）==`);
+  const roleQ = q(`SELECT 1 FROM pg_roles WHERE rolname='${user}'`);
+  if (roleQ.status !== 0) {
+    console.error(`✗ 無法查詢主機 postgres（ssh/psql exit ${roleQ.status}）。`);
+    console.error(`  請先由 root 授權 deploy 帳號：sudo -u postgres psql -c "CREATE ROLE <deploy_user> LOGIN CREATEDB CREATEROLE;"（見 docs/DEPLOY.md）`);
+    process.exit(1);
+  }
+  const roleExists = roleQ.stdout.trim();
+  const dbExists = q(`SELECT 1 FROM pg_database WHERE datname='${name}'`).stdout.trim();
+  if (roleExists && dbExists) {
+    console.log(`   （${name} 已存在，略過；不動既有密碼）`);
+    return;
+  }
+
+  const pw = randomBytes(24).toString("base64url"); // 僅 [A-Za-z0-9_-]，內嵌單引號 SQL 與 URL 皆免跳脫
+  if (!roleExists) {
+    console.log(`   建 role ${user}`);
+    if (exec(`CREATE ROLE ${user} LOGIN PASSWORD '${pw}'`).status !== 0) process.exit(1);
+  } else {
+    console.log(`   role ${user} 已存在 → 輪替密碼（db 尚缺，需重寫 DATABASE_URL）`);
+    if (exec(`ALTER ROLE ${user} PASSWORD '${pw}'`).status !== 0) process.exit(1);
+  }
+  if (!dbExists) {
+    console.log(`   建 db ${name}`);
+    if (exec(`CREATE DATABASE ${name} OWNER ${user}`).status !== 0) process.exit(1);
+  }
+
+  try {
+    setEnv(id, "DATABASE_URL", `postgresql://${user}:${pw}@localhost:5432/${name}`);
+  } catch (e) {
+    console.error(`✗ 寫入遠端 DATABASE_URL 失敗：${e.message}`);
+    process.exit(1);
+  }
+  console.log(`✅ ${s.id} DB 就緒（DATABASE_URL 已寫入遠端 .env.local）。套用 schema： tpass deploy ${s.id}`);
 }

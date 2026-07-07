@@ -23,6 +23,10 @@ const HELP = `tpass —— tschool 平台開發/部署工具（不帶參數進�
   tpass deploy [svc|all]     部署（主機端 git pull + build + pm2 reload）
   tpass status               本機 port 探測 + 主機 pm2 狀態
   tpass logs <svc> [-f]      看主機 log（-f 跟隨）
+  tpass env get <svc>        看主機 .env.local（密文預設遮罩，--show 顯示）
+  tpass env set <svc> K=V    改主機 .env.local（單鍵 upsert；套用需 deploy）
+  tpass env unset <svc> K    移除主機 .env.local 的一個 key
+  tpass db create <svc>      在主機建 role+db + 寫入遠端 DATABASE_URL（需一次性授權，見 docs/DEPLOY.md）
 
 其他
   tpass new [id]             登記新服務（寫 tpass-registry + 印人工步驟清單）
@@ -104,11 +108,35 @@ switch (cmd) {
       const { dbServices } = await import("./lib/registry.mjs");
       for (const id of args[1] ? [args[1]] : dbServices().map((s) => s.id)) await dbSetup(id);
     } else if (args[0] === "reset") await (await import("./lib/db.mjs")).dbReset(args[1]);
+    else if (args[0] === "create") (await import("./lib/db.mjs")).dbCreateRemote(args[1]);
     else {
-      console.error("用法: tpass db setup [svc] | tpass db reset <svc>");
+      console.error("用法: tpass db setup [svc] | tpass db reset <svc> | tpass db create <svc>（遠端）");
       process.exit(2);
     }
     break;
+  case "env": {
+    const env = await import("./lib/env.mjs");
+    const [sub, svcId] = args;
+    if (sub === "get") env.envGet(svcId, { show: args.includes("--show") });
+    else if (sub === "set") {
+      const rest = args.slice(2).filter((a) => a !== "--stdin");
+      if (args.includes("--stdin")) env.envSet(svcId, rest[0], await env.readStdin());
+      else {
+        const kv = rest[0] ?? "";
+        const eq = kv.indexOf("=");
+        if (!svcId || eq < 0) {
+          console.error("用法: tpass env set <svc> KEY=VALUE | tpass env set <svc> KEY --stdin");
+          process.exit(2);
+        }
+        env.envSet(svcId, kv.slice(0, eq), kv.slice(eq + 1));
+      }
+    } else if (sub === "unset") env.envUnset(svcId, args[2]);
+    else {
+      console.error("用法: tpass env get <svc> [--show] | tpass env set <svc> KEY=VALUE | tpass env unset <svc> KEY");
+      process.exit(2);
+    }
+    break;
+  }
   case "deploy":
     (await import("./lib/deploy.mjs")).deploy(args[0] ?? "all");
     break;
