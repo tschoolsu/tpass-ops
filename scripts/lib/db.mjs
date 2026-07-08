@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { byId, dbUrl, repoDir } from "./registry.mjs";
+import { byId, dbUrl, repoDir, serverRoot } from "./registry.mjs";
 import { ssh } from "./deploy.mjs";
 import { setEnv } from "./env.mjs";
 import { commandExists, run } from "./sh.mjs";
@@ -129,6 +129,12 @@ export function dbCreateRemote(id) {
   const s = byId(id);
   if (!s.db) {
     console.error(`✗ ${s.id} 在 services.json 沒有 db 設定（db:null）`);
+    process.exit(2);
+  }
+  // 目錄需先在主機 clone —— 否則沒地方寫 DATABASE_URL；先擋，避免建出「role/db 已建但 env 沒寫」的半套。
+  const dir = `${serverRoot}/${s.dir}`;
+  if (ssh(`test -d ${dir} && echo ok`, { capture: true }).stdout.trim() !== "ok") {
+    console.error(`✗ 主機目錄 ${dir} 不存在——請先在主機 git clone repo 再建 DB（見 docs/SERVICE-TEMPLATE.md §5）`);
     process.exit(2);
   }
   const { user, name } = s.db;
