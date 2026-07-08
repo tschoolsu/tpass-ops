@@ -90,8 +90,12 @@ deploy_one() {
   # 維護 env：git 更新可能引入新的必填 key（例：PORTAL_URL）。先擋，再 build。
   check_env "$dir"
 
-  # 鎖檔有變動才重裝（npm ci 較慢）
-  if git diff --name-only "$before" "$after" | grep -q '^package-lock\.json$'; then
+  # 鎖檔有變動才重裝（npm ci 較慢）。node_modules 不存在（首次部署的 fresh clone）
+  # 必裝——否則 npx 會抓最新版 prisma（major 版差直接炸 schema 驗證）。
+  if [ ! -d node_modules ]; then
+    echo "   node_modules 不存在（首次部署）→ npm ci"
+    npm ci
+  elif git diff --name-only "$before" "$after" | grep -q '^package-lock\.json$'; then
     echo "   package-lock.json 變動 → npm ci"
     npm ci
   else
