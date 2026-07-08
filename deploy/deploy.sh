@@ -14,8 +14,27 @@ REG="$ROOT/services.json"
 
 # 從註冊表查欄位（node 一定在——主機本來就跑 Next）
 svc_dir()      { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.dir:''" "$1"; }
+svc_port()     { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.port:''" "$1"; }
 svc_strategy() { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);(s&&s.db&&s.db.strategy)||''" "$1"; }
 deployed_ids() { node -p "require('$REG').services.filter(s=>s.deployed).map(s=>s.id).join(' ')"; }
+
+# 部署後健康檢查：pm2 reload 回 ✓ 只代表行程換好了，不代表 app 活著
+# （啟動時炸掉會被 pm2 無限重啟，表面仍是 online）。對 app 的 port 打 HTTP，
+# 30 秒內拿到 <500 的回應才算部署成功，否則非零退出——不發假 ✅。
+health_check() {
+  s="$1"; port="$2"; code=""
+  for _ in $(seq 1 30); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$port/" || true)"
+    if [ "$code" != "000" ] && [ "$code" -lt 500 ] 2>/dev/null; then
+      echo "   ✅ 健康檢查通過（:$port → HTTP $code）"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "   ❌ $s 健康檢查失敗（:$port 30 秒內無健康回應，最後狀態=${code:-無回應}）" >&2
+  echo "      看 log：tpass logs $s（本機發動）或主機上 pm2 logs $s --lines 100" >&2
+  exit 1
+}
 
 # .env.local 必填 key 檢查。git pull 後、build 前先擋。
 # 必填清單的真相來源＝各 config/*.ts 的 REQUIRED 陣列（跟 runtime 同一份，不會漂移），
@@ -107,6 +126,7 @@ deploy_one() {
 
   # startOrReload：既有 app zero-downtime reload；registry 新增的服務自動首次啟動。
   pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.js" --only "$s"
+  health_check "$s" "$(svc_port "$s")"
   echo "   ✅ $s 部署完成"
 }
 
@@ -116,3 +136,7 @@ if [ "$target" = "all" ]; then
 else
   deploy_one "$target"
 fi
+
+# 全部成功才更新開機快照——重開機時 pm2 resurrect 的就是「最後一次成功部署」的清單。
+pm2 save
+echo "   ✅ pm2 save（開機快照已更新）"

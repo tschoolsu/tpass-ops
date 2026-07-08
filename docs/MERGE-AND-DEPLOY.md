@@ -4,6 +4,15 @@
 > （v2 + 安全修正）。**本檔是把這些 PR 安全推上線的一次性完整步驟**——照順序做，
 > 每步都可停下來，不會把生態系弄掛。做完後本檔的 §5 之後仍是長期參考（新服務上線）。
 
+## 執行狀態（2026-07-08 更新）
+
+| 步驟 | 狀態 |
+| --- | --- |
+| §0 Merge、§1 本機 env、§2 主機 git 化、§3 主機 env、§4 form baseline、§5 部署 | ✅ 完成（2026-07-07 上線；07-08 全量重建驗證） |
+| §6 appeals 首次上線 | ⏳ 待 root 部員完成 DNS / nginx / DB 前置（清單見該節） |
+| §7.1 停發 v1 legacy cookie | ✅ 2026-07-08 完成（主機 `AUTH_ISSUE_LEGACY_COOKIE=0` 已部署） |
+| §7.2 消費端移除 v1 fallback 與 legacy env | ⏳ 擇日（不影響運作） |
+
 ---
 
 ## 0. Merge 順序（GitHub 上）
@@ -100,6 +109,9 @@ scripts/tpass status           # ③ 總檢查（pm2 全 online）
 
 ## 6. appeals 首次上線（獨立時程，不急）
 
+> 程式面已就緒（2026-07-08）：repo 預設分支已整理為 `main`（含契約 v2），
+> 本機 lint + tsc 全綠。剩下 1–3 需 root / Cloudflare 權限，4–6 部署帳號可做。
+
 1. Cloudflare DNS：`appeals.tschoolsu.org` A record → 主機 IP（灰雲）。
 2. [root] nginx server block（port 3004）+ certbot → 切橘雲（`docs/DEPLOY.md §5`）。
 3. [root] `sudo -u postgres psql -c "CREATE ROLE t_appeals LOGIN PASSWORD '<強密碼>';"`、
@@ -107,7 +119,7 @@ scripts/tpass status           # ③ 總檢查（pm2 全 online）
 4. 主機：`git clone <tpass-appeals repo> ~/tpass/tpass-appeals`、建 `.env.local`
    （對照 `.env.example`，正式網域 + 上面的 DATABASE_URL）。
 5. tpass-ops：`services.json` 把 appeals 的 `deployed` 改 `true` → commit → merge。
-6. `scripts/tpass deploy appeals` → `scripts/ssh.sh 'pm2 save'`。
+6. `scripts/tpass deploy appeals`（deploy.sh 會自動健康檢查 + `pm2 save`）。
 
 ## 7. 收尾（全部消費端 v2 驗證通過後，擇日）
 

@@ -90,6 +90,27 @@ export async function status() {
     const up = a.pm2_env?.pm_uptime ? `up ${Math.round((Date.now() - a.pm2_env.pm_uptime) / 3600000)}h` : "";
     console.log(`  ${st}  ${s.id.padEnd(9)} ↺${a.pm2_env?.restart_time ?? "?"}  ${mem}  ${up}`);
   }
+
+  console.log("\n== 主機程式碼版本（HEAD vs origin/main）==");
+  // 一條 ssh 掃完所有 deployed 服務；behind>0 = GitHub 有新 merge 還沒部署。
+  const script = deployedServices()
+    .map(
+      (s) =>
+        `cd ~/tpass/${s.dir} 2>/dev/null && { git fetch -q origin main 2>/dev/null; ` +
+        `echo "${s.id} $(git rev-parse --short HEAD) $(git rev-list --count HEAD..origin/main 2>/dev/null || echo '?')"; }`,
+    )
+    .join("; ");
+  const g = ssh(script, { capture: true });
+  if (g.status !== 0 || !g.stdout.trim()) {
+    console.log("  ⚠️ 無法取得主機 git 版本");
+    return;
+  }
+  for (const line of g.stdout.trim().split("\n")) {
+    const [id, head, behind] = line.trim().split(/\s+/);
+    if (!id) continue;
+    const flag = behind === "0" ? "🟢 最新" : `🟠 落後 origin/main ${behind ?? "?"} commit → tpass deploy ${id}`;
+    console.log(`  ${id.padEnd(10)} ${head ?? "?"}  ${flag}`);
+  }
 }
 
 export function logs(id, follow = false) {
