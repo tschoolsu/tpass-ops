@@ -15,7 +15,7 @@ EdDSA 四鐵則全生態守住、私鑰只在 env、無 SQL injection（全 Pris
 
 | ID | 級別 | 服務 | 發現 | 處置 | 狀態 |
 | --- | --- | --- | --- | --- | --- |
-| H1 | HIGH | 全生態 | 頂層共用 cookie + 單一 audience：任一子網域被攻破/接管 = 全生態帳號淪陷（callback 設 `Domain=.根網域`，全部服務驗同一 `tschool-sso`） | **契約 v2**：per-service token（`aud=tpass:<id>`）+ host-only cookie + authorize/form_post 交付；遷移期雙軌，退場步驟見 INTEGRATION.md 附錄 A | ✅ |
+| H1 | HIGH | 全生態 | 頂層共用 cookie + 單一 audience：任一子網域被攻破/接管 = 全生態帳號淪陷（callback 設 `Domain=.根網域`，全部服務驗同一 `tschool-sso`） | **契約 v2**：per-service token（`aud=tpass:<id>`）+ host-only cookie + authorize/form_post 交付；2026-07-08 主機已設 `AUTH_ISSUE_LEGACY_COOKIE=0` 停發 v1，舊 cookie ≤8h 自然過期後完全關閉 | ✅ |
 | M1 | MED | form | `ANON_HASH_SECRET ?? ""`（`f/[slug]/actions.ts`）未列 REQUIRED——空 secret 時匿名雜湊可被已知 sub 清單暴力反解 | 列入 config REQUIRED（fail closed），程式改讀 `authConfig.anonHashSecret` | ✅ |
 | M2 | MED | form | 扁平 admin：任一般 Admin 可讀/匯出**所有**問卷回應與附件（export / files route 只查 `isAdmin`） | 新增 `canReadResponses`：回覆/匯出/附件收斂為「問卷建立者或超管」；問卷編輯維持共管 | ✅ |
 | M3 | MED | form | 上傳端點不驗 MIME/accept 清單、不看 `acceptingResponses`、無配額 | 伺服器端驗題目 accept 清單 + 尊重收件開關 + 每人每卷 20 檔配額 | ✅ |
@@ -44,6 +44,6 @@ EdDSA 四鐵則全生態守住、私鑰只在 env、無 SQL injection（全 Pris
 ## 下次審查提醒
 
 - 新服務上線時跑一遍 `tpass-auth/INTEGRATION.md §12` 的驗收清單（含四種假 token 測試）。
-- v1 共用 cookie 停發後（`AUTH_ISSUE_LEGACY_COOKIE=0`），把消費端 fallback 與
-  legacy env 移除，並將 H1 標記為完全關閉。
+- ~~v1 共用 cookie 停發（`AUTH_ISSUE_LEGACY_COOKIE=0`）~~ ✅ 2026-07-08 已停發。
+  剩餘收尾：擇日把消費端的 v1 fallback 與 legacy env（`JWT_AUDIENCE`、`TPASS_COOKIE_NAME`）移除。
 - 檢查 Cloudflare 上有無 dangling DNS 子網域（H1 的殘餘面）。
