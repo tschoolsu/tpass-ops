@@ -52,8 +52,7 @@
       "port": 3004,
       "db": { "name": "t_appeals", "user": "t_appeals", "strategy": "migrate" },
       "enabled": true,
-      "deployed": false,
-      "note": "尚未上主機；首次部署步驟見 docs/MERGE-AND-DEPLOY.md"
+      "deployed": true
     },
     {
       "id": "directory",
