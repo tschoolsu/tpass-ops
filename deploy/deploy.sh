@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
 REG="$ROOT/services.json"
 
-[ -f "$REG" ] || { echo "❌ 找不到 $REG（~/tpass 尚未 git 化？見 docs/MERGE-AND-DEPLOY.md）" >&2; exit 1; }
+[ -f "$REG" ] || { echo "❌ 找不到 $REG（~/tpass 應該是 tpass-ops repo 的 clone；見 docs/ONBOARDING.md §5）" >&2; exit 1; }
 
 # 從註冊表查欄位（node 一定在——主機本來就跑 Next）
 svc_dir()      { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.dir:''" "$1"; }

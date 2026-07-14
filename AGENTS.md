@@ -26,11 +26,15 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-portal/` | **門戶大廳（消費端 + 參考實作）** | `https://portal.lvh.me:3001` | 發射台；其他子模組團隊**照抄它的串接寫法**（lib + callback/logout route）。 |
 | `tpass-form/` | 問卷系統（T-Form） | `https://form.lvh.me:3002` | 問卷建構/填寫/匯出，PostgreSQL+Prisma。 |
 | `tpass-cross_grade_messages/` | 跨屆代傳（T-Msg） | `https://msg.lvh.me:3003` | 訊息廣播到 Google Chat webhook，PostgreSQL+Prisma。 |
-| `tpass-appeals/` | 申訴系統（T-Appeals） | `https://appeals.lvh.me:3004` | 申訴收件 + Discord 通知，PostgreSQL+Prisma。**尚未上線主機。** |
+| `tpass-appeals/` | 申訴系統（T-Appeals） | `https://appeals.lvh.me:3004` | 申訴收件 + Discord 通知，PostgreSQL+Prisma。 |
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
 | `services.json` | **服務註冊表（唯一真相）** | — | id/目錄/子網域/port/DB 策略全在這；所有工具從它讀，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
-| `docs/` | ops 文檔（頂層只留 agent md，其餘全在此） | — | ONBOARDING（流程）/ DEPLOY(主機) / SERVICE-TEMPLATE / SECURITY-REVIEW / MERGE-AND-DEPLOY / GIT-REPOS（repo 清單）。 |
+| `docs/` | ops 文檔（**只有三份**） | — | NEW-SERVICE（開新服務＋串登入＋上線）/ ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。 |
+
+> **git repos**（全在 GitHub `YC815` 底下）：`tpass-ops`（＝頂層本身，private）、`tpass-auth`、
+> `tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals`、
+> `tpass-directory`（封存）。主機 `~/tpass` 是 `tpass-ops` 的 clone，各服務 repo 並排 clone 其下。
 
 > ⚠️ 每個服務子專案各有自己的 `.git`。頂層 `tschool/` 是獨立的 **`tpass-ops`** git repo，
 > 只追蹤 ops 層（`services.json`、`scripts/`、`deploy/`、`docs/`、這些 md）。
@@ -45,12 +49,12 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 
 | 你想知道… | 權威文件 | 狀態 |
 | --- | --- | --- |
-| **登入怎麼串**（契約 v2：authorize/callback、四鐵則、各語言範本） | `tpass-auth/INTEGRATION.md`（權威）、`tpass-portal/INTEGRATION.md`（消費端速讀） | 🟢 權威 |
-| **驗章參考實作**（直接照抄） | `tpass-portal/src/lib/tpass-auth.ts` + `src/app/api/auth/{callback,logout}/route.ts` | 🟢 權威 |
-| **開發→測試→部署流程** | `docs/ONBOARDING.md`（`tpass` CLI 為唯一入口） | 🟢 權威 |
-| **主機拓樸 / nginx / Cloudflare / root 分工** | `docs/DEPLOY.md` | 🟢 權威 |
-| **服務清單 / port / DB 策略** | `services.json`（工具讀）+ `docs/SERVICE-TEMPLATE.md`（欄位定義） | 🟢 權威 |
-| **新增服務** | `scripts/tpass new` + `docs/SERVICE-TEMPLATE.md` | 🟢 權威 |
+| **登入怎麼串**（契約：authorize/callback、四鐵則、payload、錯誤碼、各語言範本） | `tpass-auth/INTEGRATION.md` | 🟢 **權威** |
+| **開一個新服務 → 串登入 → 上線**（部員動手版，Next.js，自給自足） | `docs/NEW-SERVICE.md` | 🟢 權威（人類讀這份） |
+| **驗章參考實作**（直接照抄） | `tpass-portal/src/lib/tpass-auth.ts` + `src/config/portal.ts` + `src/app/api/auth/{callback,logout}/route.ts` | 🟢 權威 |
+| **開發 / 部署 / 主機 / nginx / Cloudflare / 排錯**（自給自足） | `docs/ONBOARDING.md`（`tpass` CLI 為唯一入口） | 🟢 權威 |
+| **服務清單 / port / DB 策略** | `services.json`（工具讀）；欄位定義見 `docs/NEW-SERVICE.md` 附錄 B | 🟢 權威 |
+| **新增服務** | `scripts/tpass new` + `docs/NEW-SERVICE.md` | 🟢 權威 |
 | **安全審查發現與狀態** | `docs/SECURITY-REVIEW.md` | 🟢 權威 |
 | **UI 風格 / design system** | `tpass-portal/docs/design.md` | 🟢 權威 |
 | **設定怎麼讀**（全 env 驅動） | 各 repo `src/config/*.ts`（REQUIRED 陣列＝env 必填真相） | 🟢 權威 |
@@ -83,9 +87,10 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 **所有網址 / id 都是 env 驅動**（`AUTH_AUTHORIZE_URL`、`TPASS_SERVICE_ID`、`JWT_ISSUER`…），
 上線只改 `.env.local`。**永遠不要把網域寫死在程式裡。**
 
-> 🕰 **v1（共用頂層 cookie `tpass_session`、aud `tschool-sso`）已棄用**，遷移期間 auth
-> 仍雙軌簽發、消費端有 fallback。退場步驟見 `tpass-auth/INTEGRATION.md` 附錄 A 與
-> `docs/MERGE-AND-DEPLOY.md §7`。
+> 🕰 **v1（共用頂層 cookie `tpass_session`、aud `tschool-sso`）已於 2026-07-13 從程式碼中
+> 完全移除**——auth 不再有簽發路徑，消費端不再有 fallback。**不要再寫任何 v1 相關的東西**
+> （`Domain=.<根網域>` 的 cookie、`JWT_AUDIENCE`、`TPASS_COOKIE_NAME`）；若在舊文件或舊
+> 分支看到它們，那是歷史，不是現況。
 
 ---
 
@@ -131,4 +136,4 @@ scripts/tpass ui       # 不想打字：本機圖形儀表板
 - 部署：`scripts/tpass deploy [svc|all]`；看狀態 `tpass status`；看 log `tpass logs <svc>`。
 - 進主機：`scripts/ssh.sh`（互動）或 `scripts/ssh.sh '<cmd>'`。
 - **部署帳號沒有 root**。要動 nginx / 建 DB 的操作，停下來把指令交給維運部員
-  （`tpass new` 會印好）。主機細節見 `docs/DEPLOY.md`。
+  （`tpass new` 會印好）。主機細節見 `docs/ONBOARDING.md §5`。

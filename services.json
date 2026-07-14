@@ -1,5 +1,5 @@
 {
-  "$comment": "tpass 生態系服務註冊表——唯一真相來源。所有 ops 腳本 / CLI / ecosystem.config.js / deploy.sh 都從這裡讀，不得另行硬編碼服務清單、port、目錄名。欄位說明見 docs/SERVICE-TEMPLATE.md。",
+  "$comment": "tpass 生態系服務註冊表——唯一真相來源。所有 ops 腳本 / CLI / ecosystem.config.js / deploy.sh 都從這裡讀，不得另行硬編碼服務清單、port、目錄名。欄位說明見 docs/NEW-SERVICE.md 附錄 B。",
   "issuer": "auth",
   "domains": { "dev": "lvh.me", "prod": "tschoolsu.org" },
   "server": { "root": "~/tpass" },
