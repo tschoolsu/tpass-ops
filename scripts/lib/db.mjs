@@ -85,13 +85,13 @@ export async function dbSetup(id) {
 
   const env = parseEnvLocal(dir);
   console.log("   prisma generate");
-  if ((await run("npm", ["run", "db:generate"], { cwd: dir, env, label: s.id }).done) !== 0) process.exit(1);
+  if ((await run("pnpm", ["run", "db:generate"], { cwd: dir, env, label: s.id }).done) !== 0) process.exit(1);
   if (s.db.strategy === "migrate") {
     console.log("   prisma migrate dev（套用 migrations）");
-    if ((await run("npx", ["prisma", "migrate", "dev"], { cwd: dir, env, label: s.id }).done) !== 0) process.exit(1);
+    if ((await run("pnpm", ["exec", "prisma", "migrate", "dev"], { cwd: dir, env, label: s.id }).done) !== 0) process.exit(1);
   } else {
     console.log("   prisma db push");
-    if ((await run("npm", ["run", "db:push"], { cwd: dir, env, label: s.id }).done) !== 0) process.exit(1);
+    if ((await run("pnpm", ["run", "db:push"], { cwd: dir, env, label: s.id }).done) !== 0) process.exit(1);
   }
   console.log(`   ✅ ${s.id} 資料庫就緒`);
 }

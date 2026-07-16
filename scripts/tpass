@@ -11,9 +11,9 @@ const HELP = `tpass —— tschool 平台開發/部署工具（不帶參數進�
   tpass dev [svc|all]        內層 dev 迴圈（HTTPS + HMR，SSO 全流程可測）
   tpass check [svc|all]      push 前把關：lint + tsc --noEmit
   tpass check env [svc|all]  驗 .env.local 必填 key（真相 = src/config REQUIRED）
-  tpass build [svc|all]      npm run build
+  tpass build [svc|all]      pnpm run build
   tpass start [svc|all]      production smoke：build + start:https
-  tpass setup                一次性環境準備（mkcert / npm install / 金鑰 / DB，冪等）
+  tpass setup                一次性環境準備（mkcert / pnpm install / 金鑰 / DB，冪等）
 
 資料庫（本機）
   tpass db setup [svc]       建 role+db、補 DATABASE_URL、prisma generate+套 schema

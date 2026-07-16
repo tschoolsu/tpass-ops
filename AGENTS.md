@@ -98,8 +98,13 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 
 **Next.js 版本**：本專案用 **Next 16.2.x + React 19**，API 可能與你的訓練資料不同。
 寫 Next code 前先讀 `node_modules/next/dist/docs/`（各子專案 `AGENTS.md` 已警告）。
-**禁止裸 `npm run dev`**；人要跑 dev 用 `scripts/tpass dev`；agent 檢查用
-`scripts/tpass check <svc>`（= lint + `tsc --noEmit`）。
+**跑 dev**：本機必須是 HTTPS + `-H <svc>.lvh.me -p <port>`，且**消費端**要
+`NODE_TLS_REJECT_UNAUTHORIZED=0`（Next server 端 fetch 不吃 `NODE_EXTRA_CA_CERTS`，
+抓不到 auth 的 JWKS → 登入靜默鬼打牆）。這串已寫進各服務 `package.json` 的 `dev`，
+所以 `pnpm dev` 是對的；`scripts/tpass dev` 是一次跑多個服務的捷徑。
+**auth 不加那個 flag**（要驗 Google 真憑證），**主機永遠不加**（資安事故）。
+agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check` 做的就是這兩行）。
+**套件管理一律 pnpm**（`pnpm add` / `pnpm install`）；不要用 npm / yarn，不要生出 `package-lock.json`。
 
 **安全 / 架構紅線（違反就是 bug）：**
 
@@ -116,7 +121,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 ## 6. 本機跑起來（詳見 `docs/ONBOARDING.md`）
 
 ```bash
-scripts/tpass setup    # 一次性：mkcert + npm install + 金鑰 + DB（冪等）
+scripts/tpass setup    # 一次性：mkcert + pnpm install + 金鑰 + DB（冪等）
 scripts/tpass dev      # 日常：全服務 HTTPS + HMR（SSO 全流程可測）
 scripts/tpass check    # push 前：lint + tsc
 scripts/tpass ui       # 不想打字：本機圖形儀表板

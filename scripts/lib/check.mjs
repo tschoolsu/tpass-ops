@@ -36,9 +36,9 @@ export async function check(target) {
   for (const s of resolveTarget(target)) {
     const dir = repoDir(s);
     console.log(`== ${s.id} : lint ==`);
-    if ((await run("npm", ["run", "lint"], { cwd: dir, label: s.id }).done) !== 0) fail = true;
+    if ((await run("pnpm", ["run", "lint"], { cwd: dir, label: s.id }).done) !== 0) fail = true;
     console.log(`== ${s.id} : tsc --noEmit ==`);
-    if ((await run("npx", ["tsc", "--noEmit"], { cwd: dir, label: s.id }).done) !== 0) fail = true;
+    if ((await run("pnpm", ["exec", "tsc", "--noEmit"], { cwd: dir, label: s.id }).done) !== 0) fail = true;
   }
   console.log(fail ? "❌ 有錯誤，見上方輸出" : "✅ all green");
   process.exit(fail ? 1 : 0);

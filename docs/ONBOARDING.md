@@ -7,39 +7,51 @@
 
 ---
 
-## 0. 全貌：一條管線
+## 0. 你是哪一種人？
 
-指令**只有一個入口**：`scripts/tpass`。不想背指令就直接打 `scripts/tpass`（不帶參數），會跳互動選單；`scripts/tpass ui` 有瀏覽器圖形儀表板。
+**先確認你需不需要這份文件。**
 
-```
-tpass setup ──(一次)──▶ tpass dev ──(日常)──▶ tpass check ──▶ tpass start
-                                                                   │
-                    git push（開分支 → PR → merge main）            │
-                                                                   ▼
-                                             tpass deploy ──▶ 正式主機
-                                                              （pm2 reload + 健康檢查）
-```
+| 你的情況 | 看哪裡 |
+| --- | --- |
+| 我要開發一個服務（寫 code、串登入、把它上線） | **《TSchool 新服務串接指南》**。那份是自給自足的：只用原生 `pnpm` / `ssh`，**不需要 ops repo，也不需要 `tpass`**。你不必讀這份 |
+| 我要顧整個生態系（管註冊表、開新子網域、部署別人的服務、看機器） | **這份**。你會拿到 ops repo（`tpass-ops`），裡面有 `tpass` 遙控器 |
 
-### tpass 全指令
+> ### `tpass` 不是規定，是遙控器
+>
+> `scripts/tpass` 是給**同時顧五六個服務**的人用的省時工具——它會一次對所有 repo 做事，
+> 而且知道主機在哪（位址存在 gitignored 的 `deploy/host.env`）。
+>
+> **它底下沒有任何魔法。** 每一個指令都對應得到你自己打得出來的原生指令（見下表）。
+> 部員不用它、不知道它存在，一樣能把服務寫完、測完、上線。**這是刻意的**——
+> 工具鏈不該是入門的門檻。
 
-| 指令 | 做什麼 | 什麼時候用 |
-| --- | --- | --- |
-| `tpass setup` | mkcert 憑證 + npm install + 產金鑰 + 建 DB（冪等，重跑安全） | 換新電腦 / 加了新服務 |
-| `tpass dev [svc\|all]` | 本機開發：HTTPS + HMR，SSO 全流程可測 | 寫 code 時 |
-| `tpass check [svc\|all]` | lint + `tsc --noEmit` | **每次 push 前** |
-| `tpass check env [svc\|all]` | 驗 `.env.local` 必填 key 有沒有漏 | 懷疑 env 缺值時 |
-| `tpass build [svc\|all]` | `npm run build` | 少用（check 通常夠） |
-| `tpass start [svc\|all]` | production smoke：build + start:https | 大改動 push 前 |
-| `tpass db setup [svc]` | 建 role + database、補 `DATABASE_URL`、prisma generate + 套 schema | 首次 / schema 改動後 |
-| `tpass db reset <svc>` | drop 後重建（會要求打服務 id 確認） | 本機 DB 壞了 |
-| `tpass deploy [svc\|all]` | 部署到正式主機 | merge 到 main 後 |
-| `tpass status` | 本機 port 探測 + 主機 pm2 狀態 + 主機程式碼版本 | 隨時 |
-| `tpass logs <svc> [-f]` | 看主機 log（`-f` 跟隨） | 出事時 |
-| `tpass new [id]` | 登記新服務（寫 `services.json` + 印人工步驟） | 開新服務 |
-| `tpass list` | 列出服務註冊表 | 隨時 |
-| `tpass ui` | 瀏覽器圖形儀表板 | 不想打字時 |
+### tpass 指令 ↔ 它其實在做什麼
 
-> **🚫 禁止在服務 repo 裸跑 `npm run dev`。** 本機用 HTTPS + mkcert 憑證，而 Node / Next 預設不信任 mkcert 的根憑證，後端去抓 SSO 公鑰（JWKS）會 TLS 失敗——症狀是「登入完馬上被踢回登入頁」。`tpass dev` 把這個坑處理掉了。
+左邊是遙控器，右邊是它按下去的東西。**右邊才是真相**；不確定 tpass 幹了什麼，就看右邊。
+
+| `tpass` 指令 | 等價的原生指令 |
+| --- | --- |
+| `tpass dev <svc>` | `next dev --experimental-https --experimental-https-{key,cert} certs/… -H <svc>.lvh.me -p <port>`（消費端另加 `NODE_TLS_REJECT_UNAUTHORIZED=0`，見下方⚠️） |
+| `tpass check <svc>` | `pnpm lint` && `pnpm exec tsc --noEmit` ← **就這兩行,沒別的** |
+| `tpass check env <svc>` | 比對 `.env.local` 與該 repo `src/config/*.ts` 的 `REQUIRED` 陣列 |
+| `tpass build <svc>` | `pnpm build` |
+| `tpass start <svc>` | `pnpm build` && `pnpm start:https` |
+| `tpass setup` | `mkcert -install` → 產憑證到 `certs/` → 各 repo `pnpm install` → `node scripts/gen-keys.mjs` → 建本機 DB |
+| `tpass db setup <svc>` | `createuser` / `createdb` → 寫 `DATABASE_URL` → `pnpm exec prisma generate` + 套 schema |
+| `tpass deploy <svc>` | `ssh <主機> 'cd ~/tpass && git pull --ff-only && ./deploy/deploy.sh <svc>'` |
+| `tpass logs <svc>` | `ssh <主機> 'pm2 logs <svc> --lines 100'` |
+| `tpass status` | 本機 port 探測 + `ssh <主機> 'pm2 jlist'` + 各 repo `HEAD` vs `origin/main` |
+| `tpass new <id>` | 寫一筆進 `services.json` + 印出需要 root 的人工步驟 |
+| `tpass list` / `tpass ui` | 讀 `services.json` 印出來 / 開瀏覽器儀表板 |
+
+不帶參數直接打 `scripts/tpass` 會跳互動選單。
+
+> ⚠️ **本機 dev 那個 `NODE_TLS_REJECT_UNAUTHORIZED=0` 不是隨便加的。**
+> Next（Turbopack）server 端的 fetch（undici）**不吃 `NODE_EXTRA_CA_CERTS`**，所以消費端後端
+> 去抓 auth 的 JWKS 公鑰時**不信任 mkcert 簽的憑證** → 驗章默默失敗 → **登入完馬上被踢回登入頁，
+> 而且沒有錯誤訊息**。這是本專案最貴的一個坑。
+> 規則：**只有本機、只有消費端**能關。auth 不能關（它要驗 Google 的真憑證），
+> 主機不能關（走真憑證，關掉就是資安事故）。
 
 ### 角色分工
 
@@ -47,10 +59,11 @@ tpass setup ──(一次)──▶ tpass dev ──(日常)──▶ tpass chec
 
 | 角色 | 能做 | 不能做 |
 | --- | --- | --- |
-| 開發者 / 部署帳號 | `tpass` 全部指令、服務 repo 的 git、主機 `~/tpass` 底下一切、pm2 | nginx、TLS 憑證、建 PostgreSQL role/db、系統套件 |
-| 維運部員（有 root） | nginx vhost、certbot、Cloudflare DNS、`sudo -u postgres psql` | —— |
+| 部員（服務開發者） | 自己的 repo、ssh 進主機部署自己的服務、pm2 | nginx、TLS 憑證、建 PostgreSQL role/db、系統套件、改 `services.json` |
+| 維運（顧生態系） | 上面全部 + ops repo + `tpass` + 註冊表 | 同上（除非他也有 root） |
+| 有 root 的維運 | nginx vhost、certbot、Cloudflare DNS、`sudo -u postgres psql` | —— |
 
-需要 root 的操作，**停下來把指令交給維運部員**（`tpass new` 會自動把該給他們的指令印出來）。
+需要 root 的操作，**停下來把指令交給有 root 的人**。
 
 ---
 
@@ -83,7 +96,7 @@ git repos：
 前置（macOS）：
 
 ```bash
-brew install mkcert nss node postgresql@17
+brew install mkcert nss node pnpm postgresql@17
 brew services start postgresql@17
 ```
 
@@ -93,7 +106,7 @@ brew services start postgresql@17
 scripts/tpass setup
 ```
 
-它會做：信任 mkcert 根憑證 → 產出涵蓋所有服務子網域的憑證到 `certs/` → 所有服務 `npm install` → 印出 EdDSA 金鑰對 → 對有 DB 的服務跑 `tpass db setup`（建 role + database、補 `DATABASE_URL`、prisma generate + migrate）。
+它會做：信任 mkcert 根憑證 → 產出涵蓋所有服務子網域的憑證到 `certs/` → 所有服務 `pnpm install` → 印出 EdDSA 金鑰對 → 對有 DB 的服務跑 `tpass db setup`（建 role + database、補 `DATABASE_URL`、prisma generate + migrate）。
 
 **接著手動做一次**：每個 repo `cp .env.example .env.local` 並填入真值（金鑰貼進 auth 的那份）。
 
@@ -114,17 +127,37 @@ scripts/tpass setup
 ## 3. 日常開發
 
 ```bash
-scripts/tpass dev          # 全部服務一起跑（測 SSO 互通要這樣）
+scripts/tpass dev          # 全部服務一起跑（測 SSO 互通最方便）
 scripts/tpass dev form     # 只跑一個
 ```
 
 - 全部走 HTTPS + `*.lvh.me`。`lvh.me` 由公共 DNS 直接解析到 `127.0.0.1`，**不用改 `/etc/hosts`**。
 - 本機與正式環境**邏輯完全相同，只差 env 的值與啟動方式**。
 
+**不想用 tpass？** 一個服務開一個終端機，在該 repo 打 `pnpm dev` 就好——
+
+```bash
+cd tpass-auth && pnpm dev      # 終端機 1
+cd tpass-form && pnpm dev      # 終端機 2
+```
+
+因為**正確的那串已經寫死在各服務的 `package.json` 裡了**（HTTPS + 正確的 `-H` 與 `-p`
++ 消費端的 `NODE_TLS_REJECT_UNAUTHORIZED=0`）。`tpass dev` 只是幫你把這幾個一次平行起起來。
+
+> 📁 **憑證路徑全生態統一在 `$HOME/tpass-certs`**——那是部員版的路徑（他們沒有 ops repo）。
+> `tpass setup` 會自動把 `~/tpass-certs` symlink 到 ops 的 `certs/`，所以你這邊也通。
+> 這樣文件與 `package.json` 不用分兩種寫法。
+
 ### push 前把關
 
 ```bash
-scripts/tpass check        # lint + tsc，全綠才 push
+pnpm lint              # 這兩行才是真相
+pnpm exec tsc --noEmit
+```
+
+全綠才 push。要一次掃過所有 repo 就用 `scripts/tpass check`（它做的就是上面兩行）。
+
+```bash
 scripts/tpass check env    # .env.local 必填 key 驗證
 scripts/tpass start        # 大改動再跑：build + start（抓 dev 抓不到的 build 期問題）
 ```
@@ -146,18 +179,33 @@ scripts/tpass deploy form   # 單一服務
 scripts/tpass deploy        # 全部（registry 裡 deployed:true 的）
 ```
 
+**手動等價（部員就是這樣做的，效果一模一樣）**——真正的部署腳本 `deploy.sh` **住在主機上**：
+
+```bash
+ssh <帳號>@<主機>                     # 位址與帳號絕不進 git
+cd ~/tpass && git pull --ff-only      # 更新 ops（services.json / deploy.sh 吃最新 main）
+./deploy/deploy.sh form               # 或 all
+```
+
+`tpass deploy` 就只是幫你打這三行。
+
 ### 主機端每次部署做什麼
 
-部署動作全部從本機經 ssh 觸發，**主機上不裝任何部署工具**（效能預算留給產品本身）。主機只有 ssh + git + node + pm2 + nginx + PostgreSQL。
+`deploy.sh` 在主機上跑，但**觸發永遠來自 ssh**——主機上不裝任何遠端部署工具（效能預算留給產品本身）。主機只有 ssh + git + node + pnpm + pm2 + nginx + PostgreSQL。
+
+> pnpm 在主機上是 **standalone 安裝**（部署帳號無 root）：
+> `curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=10.27.0 sh -`（裝到 `~/.local/share/pnpm`）。
+> 非互動 ssh 不會 source `.bashrc`，所以 `deploy.sh` 自己把 `$PNPM_HOME` 加進 PATH，找不到會直接報錯並印出安裝指令。
 
 每一步失敗都會中止並印出明確錯誤：
 
 1. ops repo `git pull` 自我更新（部署腳本、`services.json` 永遠吃最新 main）。
 2. 服務 repo `git pull --ff-only`。
 3. **env 必填檢查**——解析該 repo `src/config/*.ts` 的 `REQUIRED`，缺 key 在 build 前就擋下並印出缺哪些。
-4. `package-lock.json` 有變才 `npm ci`（沒變就跳過，快很多）。
-5. `prisma generate`（有 DB 的服務）。
-6. `npm run build`。
+4. `pnpm-lock.yaml` 有變才 `pnpm install --frozen-lockfile`（沒變就跳過，快很多）。
+   `node_modules` 不是 pnpm 裝的（首次部署、或 npm 時代的舊裝）也會強制重裝——舊的先備份成 `node_modules.npm-bak`。
+5. `prisma generate`（有 DB 的服務；`pnpm exec`，只用鎖定版本，不會抓最新）。
+6. `pnpm build`。
 7. 套 DB schema：依 `services.json` 的 `db.strategy` 跑 `prisma migrate deploy`（標準）或 `prisma db push`（僅限原型）。
 8. `pm2 startOrReload`——既有服務零停機 reload；registry 新增的服務會自動首次啟動。
 9. **健康檢查**：對服務 port 打 HTTP，30 秒內拿到 <500 回應才算成功（app 起不來不會拿到假的 ✅）。
@@ -259,7 +307,7 @@ scripts/tpass logs form -f     # 跟隨
 
 | 症狀 | 原因 / 解法 |
 | --- | --- |
-| 本機登入後一直被踢回登入頁 | 十之八九是裸跑了 `npm run dev`（後端抓不到 JWKS）。改用 `tpass dev` |
+| 本機登入後一直被踢回登入頁 | dev 指令少了 `NODE_TLS_REJECT_UNAUTHORIZED=0`，消費端後端抓不到 auth 的 JWKS（見 §0 的 ⚠️）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`。**主機上出現這症狀跟 TLS 無關**，去查 `iss` / `aud` |
 | `tpass deploy` 報 git 錯誤 | 主機 `~/tpass` 工作樹不乾淨（主機上不該手改檔案）。`scripts/ssh.sh 'git -C ~/tpass status'` 看 |
 | `tpass deploy` 健康檢查失敗 | `tpass logs <svc>` 看啟動錯誤；最常見是 env 缺值或 DB 連不上 |
 | 部署被擋，說 env 缺 key | 對照該 repo `.env.example` 補**主機上**的 `.env.local`（真相是 `src/config/*.ts` 的 REQUIRED） |

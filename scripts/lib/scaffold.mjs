@@ -36,7 +36,7 @@ export async function newService(idArg) {
   console.log(`✅ 已登記進 services.json：${JSON.stringify(svc)}`);
 
   console.log("\n== 重生本機 mkcert 憑證（納入新子網域）==");
-  console.log("（跑 tpass setup 會一併處理 npm install / 金鑰 / DB；只想重生憑證可手動 mkcert）");
+  console.log("（跑 tpass setup 會一併處理 pnpm install / 金鑰 / DB；只想重生憑證可手動 mkcert）");
   await setup();
 
   const prod = `${subdomain}.${registry.domains.prod}`;

@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 # 伺服器上的部署腳本。放在 ~/tpass/deploy/（~/tpass = tpass-ops repo clone，各服務 repo 同層）。
 # 服務清單 / 目錄 / DB 策略全部來自 ../services.json（唯一真相），不得在此硬編碼。
-# 對指定服務： git pull →（鎖檔變動才）npm ci → prisma generate → npm run build →
-#              依 db.strategy 套 schema → pm2 startOrReload（zero-downtime；新服務自動首啟）。
+# 對指定服務： git pull →（鎖檔變動才）pnpm install --frozen-lockfile → prisma generate →
+#              pnpm run build → 依 db.strategy 套 schema → pm2 startOrReload（zero-downtime；新服務自動首啟）。
 # 用法： deploy.sh [<svc>|all]   （預設 all = services.json 中 deployed:true 者）
 set -euo pipefail
+
+# 非互動 ssh 不 source rc；pnpm 是無 root 的 standalone 安裝（住在 $PNPM_HOME），此處自帶 PATH。
+export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
+export PATH="$PNPM_HOME:$PATH"
+command -v pnpm >/dev/null 2>&1 || {
+  echo "❌ 找不到 pnpm。主機一次性安裝（無 root）：curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=10.27.0 sh -" >&2
+  exit 1
+}
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
@@ -90,41 +98,51 @@ deploy_one() {
   # 維護 env：git 更新可能引入新的必填 key（例：PORTAL_URL）。先擋，再 build。
   check_env "$dir"
 
-  # 鎖檔有變動才重裝（npm ci 較慢）。node_modules 不存在（首次部署的 fresh clone）
-  # 必裝——否則 npx 會抓最新版 prisma（major 版差直接炸 schema 驗證）。
-  if [ ! -d node_modules ]; then
-    echo "   node_modules 不存在（首次部署）→ npm ci"
-    npm ci
-  elif git diff --name-only "$before" "$after" | grep -q '^package-lock\.json$'; then
-    echo "   package-lock.json 變動 → npm ci"
-    npm ci
+  # 鎖檔有變動才重裝。node_modules/.pnpm 是「pnpm 所裝」的指紋：
+  # 不存在＝首次部署，或還是 npm 時代裝的舊 node_modules（一次性轉換）——都必須重裝，
+  # 否則 pnpm exec 找不到工具、或拿舊依賴去 build。舊 node_modules 先備份成
+  # node_modules.npm-bak（tsconfig 已 exclude；也是 pnpm 部署炸掉時的即刻止血包：
+  # mv 回來 + pm2 restart 就回到舊世界）。
+  if [ ! -d node_modules/.pnpm ]; then
+    if [ -d node_modules ]; then
+      echo "   node_modules 非 pnpm 所裝（npm 舊裝）→ 備份為 node_modules.npm-bak 後重裝"
+      rm -rf node_modules.npm-bak
+      mv node_modules node_modules.npm-bak
+    else
+      echo "   node_modules 不存在（首次部署）→ pnpm install"
+    fi
+    pnpm install --frozen-lockfile
+  elif git diff --name-only "$before" "$after" | grep -q '^pnpm-lock\.yaml$'; then
+    echo "   pnpm-lock.yaml 變動 → pnpm install --frozen-lockfile"
+    pnpm install --frozen-lockfile
   else
-    echo "   依賴未變，略過 npm ci"
+    echo "   依賴未變，略過 pnpm install"
   fi
 
   strategy="$(svc_strategy "$s")"
 
   # Prisma CLI 只讀 .env，不讀 .env.local；先把 .env.local 匯進環境再跑。
   # generate 必須在 build 之前：schema.prisma 一改、型別就變，build 的 tsc 檢查靠的是
-  # node_modules 裡「上次生成」的 client。這步不能靠 npm ci 順便帶到——
-  # 沒有 postinstall 掛 prisma generate，且 package-lock.json 沒變時 npm ci 整個被跳過，
+  # node_modules 裡「上次生成」的 client。這步不能靠 install 順便帶到——
+  # 沒有 postinstall 掛 prisma generate，且 pnpm-lock.yaml 沒變時 install 整個被跳過，
   # schema 改了也不會重新生成，build 就會拿舊型別去對新 schema。
+  # pnpm exec 只用本地依賴、找不到就報錯——不會像 npx 那樣去抓最新版（major 版差炸 schema）。
   if [ -n "$strategy" ]; then
     echo "   prisma generate（確保 client 型別跟得上 schema.prisma）"
-    ( set -a; . "$dir/.env.local"; set +a; npx prisma generate )
+    ( set -a; . "$dir/.env.local"; set +a; pnpm exec prisma generate )
   fi
 
-  npm run build
+  pnpm run build
 
   # 套 schema：策略由 services.json 的 db.strategy 決定（migrate = 有 migrations 歷史）。
   case "$strategy" in
     migrate)
       echo "   $s → prisma migrate deploy"
-      ( set -a; . "$dir/.env.local"; set +a; npx prisma migrate deploy )
+      ( set -a; . "$dir/.env.local"; set +a; pnpm exec prisma migrate deploy )
       ;;
     push)
       echo "   $s → prisma db push（無 migrations 目錄）"
-      ( set -a; . "$dir/.env.local"; set +a; npm run db:push )
+      ( set -a; . "$dir/.env.local"; set +a; pnpm run db:push )
       ;;
   esac
 

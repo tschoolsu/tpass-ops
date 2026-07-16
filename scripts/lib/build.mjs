@@ -1,4 +1,4 @@
-// build：全部（或指定）repo npm run build。
+// build：全部（或指定）repo pnpm run build。
 // start：部署前 production smoke —— start:https（server.mjs，最貼近 prod 的 next start），
 //        抓 dev 模式漏掉的 build / 型別 / RSC / React Compiler 行為差異。
 // setup：一次性本機環境準備（冪等，重跑安全）。
@@ -11,7 +11,7 @@ import { dbSetup } from "./db.mjs";
 export async function build(target) {
   for (const s of resolveTarget(target)) {
     console.log(`== build ${s.id} ==`);
-    const code = await run("npm", ["run", "build"], { cwd: repoDir(s), label: s.id }).done;
+    const code = await run("pnpm", ["run", "build"], { cwd: repoDir(s), label: s.id }).done;
     if (code !== 0) {
       console.error(`❌ ${s.id} build 失敗`);
       process.exit(1);
@@ -24,7 +24,7 @@ export async function start(target) {
   await build(target);
   const jobs = resolveTarget(target).map((s) => {
     console.log(`▶ start:https ${s.id}`);
-    return { cmd: "npm", args: ["run", "start:https"], opts: { cwd: repoDir(s), label: s.id } };
+    return { cmd: "pnpm", args: ["run", "start:https"], opts: { cwd: repoDir(s), label: s.id } };
   });
   const ok = await runParallel(jobs);
   process.exit(ok ? 0 : 1);
@@ -46,10 +46,19 @@ export async function setup() {
   }).done;
   if (code !== 0) process.exit(1);
 
+  // 各服務 package.json 的 `dev` 一律讀 $HOME/tpass-certs（那是部員版的路徑——他們沒有 ops repo）。
+  // 這條 symlink 讓「有 ops repo 的人」打 pnpm dev 也拿得到同一張憑證：全生態只有一個憑證路徑，
+  // 文件與 package.json 不必分兩種寫法。
+  const link = join(process.env.HOME, "tpass-certs");
+  if (!existsSync(link)) {
+    console.log(`== 2b) symlink ${link} → ${CERT_DIR}（讓 pnpm dev 找得到憑證）==`);
+    await run("ln", ["-s", CERT_DIR, link]).done;
+  }
+
   console.log(`== 3) 安裝相依（${enabledServices().map((s) => s.dir).join(" / ")}）==`);
   for (const s of enabledServices()) {
     console.log(`   -> ${s.dir}`);
-    if ((await run("npm", ["install"], { cwd: repoDir(s), label: s.id }).done) !== 0) process.exit(1);
+    if ((await run("pnpm", ["install"], { cwd: repoDir(s), label: s.id }).done) !== 0) process.exit(1);
   }
 
   console.log("== 4) 產 EdDSA 簽章金鑰（請貼進 auth/.env.local，若已有金鑰請沿用勿換）==");
