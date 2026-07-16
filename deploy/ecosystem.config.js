@@ -22,7 +22,9 @@ module.exports = {
     .map((s) => ({
       name: s.id,
       cwd: path.join(ROOT, s.dir),
-      script: "./node_modules/.bin/next",
+      // 指向 next 真正的 JS 入口，不走 node_modules/.bin：pm2 是把 script 當 JS require 的，
+      // 而 pnpm 的 .bin/* 是 shell shim（npm 時代是 JS symlink 才僥倖能跑）。
+      script: "./node_modules/next/dist/bin/next",
       args: `start -H 127.0.0.1 -p ${s.port}`,
       exec_mode: "fork",
       instances: 1,
