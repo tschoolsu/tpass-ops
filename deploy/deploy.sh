@@ -147,6 +147,12 @@ deploy_one() {
   esac
 
   # startOrReload：既有 app zero-downtime reload；registry 新增的服務自動首次啟動。
+  # 例外：pm2 reload 不會套用 ecosystem.config.js 改過的 script 路徑——程序還掛在
+  # npm 時代的 .bin/next（shell shim，pm2 當 JS require 會炸）時，得 delete 重建（一次性）。
+  if pm2 describe "$s" 2>/dev/null | grep -q 'node_modules/\.bin/next'; then
+    echo "   pm2 程序還掛在舊 script 路徑（.bin/next）→ delete + start（一次性重建）"
+    pm2 delete "$s"
+  fi
   pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.js" --only "$s"
   health_check "$s" "$(svc_port "$s")"
   echo "   ✅ $s 部署完成"
