@@ -36,8 +36,10 @@ EdDSA 四鐵則全生態守住、私鑰只在 env、無 SQL injection（全 Pris
 - 全部驗章鎖 `algorithms:["EdDSA"]`（六個 repo 逐一確認）；全在 server 端；無 localStorage token。
 - 私鑰只在 `JWT_PRIVATE_KEY` env；`gen-keys.mjs` 不落盤；`.env*`/`*.pem` 全 gitignore；
   `git ls-files` 確認各 repo 只追蹤 `.env.example`（占位值）。
-- 授權：`resolveClaims` 的 `role:"student"` 是 placeholder，無任何消費端拿它做權限；
-  全部用 `SUPER_ADMIN_EMAILS` 種子 ∪ DB Admin 表，且每個 server action 重呼 guard。
+- 授權（2026-07 改為 OIDC 標準 group claim）：auth 依 `AUTH_GROUPS` 設定發 per-service `groups` 章，
+  各消費端只讀 `session.groups`（`admin` / `super-admin`）本地授權，不再自維護 allowlist / DB 名單；
+  細粒度授權（如問卷回覆限 owner/super-admin）仍在各服務本地，每個 server action 重呼 guard。
+  舊的 `role:"student"` placeholder 與各服務 `SUPER_ADMIN_EMAILS` ∪ DB Admin 表已移除。
 - CSRF：狀態變更走 server actions（框架 Origin 檢查）或 SameSite=Lax POST；logout 限 POST。
 - DB：無 `$queryRaw` / `Unsafe`；Prisma 參數化。
 

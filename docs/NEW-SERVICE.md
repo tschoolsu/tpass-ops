@@ -212,8 +212,7 @@ export interface TPassClaims {
   sub: string;            // 使用者唯一 id（跨服務一致，可當你 DB 的主鍵）
   email: string;          // 學校信箱
   name: string;           // 顯示名稱
-  role: string;           // ⚠️ 目前恆為 "student"，不要拿來做權限
-  grade: string | null;   // ⚠️ 目前恆為 null
+  groups: string[];       // 授權章：此人在本服務屬於哪些群組（admin / super-admin）。授權只看這個
   exp: number;
 }
 
@@ -232,8 +231,7 @@ export async function verifySession(token: string): Promise<TPassClaims | null> 
       sub: payload.sub as string,
       email: payload.email as string,
       name: payload.name as string,
-      role: payload.role as string,
-      grade: (payload.grade as string | null) ?? null,
+      groups: Array.isArray(payload.groups) ? (payload.groups as string[]) : [],
       exp: payload.exp as number,
     };
   } catch {
@@ -600,7 +598,7 @@ pm2 logs lost --lines 100  # 你的服務的錯誤
 - ❌ 不要在**前端**驗章、不要把 token 塞 `localStorage`。
 - ❌ 不要拿掉 `algorithms: ["EdDSA"]`。（等於開放任何人偽造身分）
 - ❌ 不要把 cookie 設 `Domain=.tschoolsu.org`。（通行證會外洩到其他服務，隔離全毀）
-- ❌ 不要拿 JWT 的 `role` 做權限判斷——它恆為 `"student"`，是 placeholder。要做管理員權限，用你自己服務內的 allowlist（super-admin 的 env 一律叫 `SUPER_ADMIN_EMAILS`，別自己發明名字）。
+- ✅ 管理員權限就讀 JWT 的 `groups`（`groups.includes("admin")`，`super-admin` 隱含 `admin`）。名單維護在**中央**（auth 的 `AUTH_GROUPS` 設定），你的服務**不要**自維護 allowlist / DB 名單。細粒度授權（能讀哪筆資料）仍在你服務本地做。
 - ❌ 不要 import 或複製 auth 的私鑰、`arctic`、Google OAuth callback。**你只需要公鑰。**
 - ❌ 不要把網域 / issuer / audience 寫死在程式裡——全部走 env。
 - ❌ 不要嘗試自動化 Google 登入。要測就真人點。
@@ -618,8 +616,7 @@ pm2 logs lost --lines 100  # 你的服務的錯誤
   "sub": "104857600293847561029",
   "email": "b11302042@tschool.tp.edu.tw",
   "name": "林大明",
-  "role": "student",
-  "grade": null,
+  "groups": ["admin"],
   "iss": "https://auth.lvh.me:3000",
   "aud": "tpass:lost",
   "iat": 1750000000,
@@ -632,8 +629,7 @@ pm2 logs lost --lines 100  # 你的服務的錯誤
 | `sub` | `string` | 使用者唯一識別碼（來自 Google，跨服務一致，**可以當你 DB 的主鍵**） |
 | `email` | `string` | 學校信箱（已通過驗證與網域白名單） |
 | `name` | `string` | 顯示名稱 |
-| `role` | `string` | ⚠️ **placeholder，目前一律 `"student"`**。不要拿來做權限判斷 |
-| `grade` | `string \| null` | ⚠️ **目前一律 `null`**。注意型別是 `string` 不是 `number` |
+| `groups` | `string[]` | **授權章**：此人在本服務屬於哪些群組（`["admin"]` 等），非管理員為 `[]`。授權只讀這個；名單維護在中央（auth `AUTH_GROUPS`） |
 | `iss` | `string` | 簽發者，驗章時必須檢查 |
 | `aud` | `string` | 受眾，必為 `tpass:<你的服務id>`，驗章時必須檢查 |
 | `iat` / `exp` | `number` | 簽發 / 到期時間（Unix 秒）。token 壽命 8 小時 |
