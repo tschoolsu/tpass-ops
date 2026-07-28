@@ -56,10 +56,22 @@ check_env() {
     echo "   ❌ 缺 $local_env（範本見 $d/.env.example）" >&2
     exit 1
   fi
-  keys="$(for cfg in "$d"/src/config/*.ts; do
-    [ -f "$cfg" ] || continue
-    awk '/REQUIRED[[:space:]]*=[[:space:]]*\[/{f=1;next} f&&/\]/{f=0} f{print}' "$cfg"
-  done | grep -oE '"[A-Z][A-Z0-9_]*"' | tr -d '"' | sort -u || true)"
+  # 用 node 解析（跟 scripts/lib/check.mjs 的 requiredEnvKeys 同一條 regex）。
+  # 原本的 awk 版對「單行寫完的 REQUIRED = [...]」會整行跳過 → 那些 key 靜默漏掉，
+  # 於是缺 key 不是在這裡被擋下，而是 build 到收集 page data 才炸（2026-07-28 踩到）。
+  keys="$(node -e '
+const fs = require("fs"), path = require("path");
+const dir = path.join(process.argv[1], "src", "config");
+const out = new Set();
+if (fs.existsSync(dir)) {
+  for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    for (const m of src.matchAll(/REQUIRED\s*=\s*\[([^\]]*)\]/gs))
+      for (const k of m[1].matchAll(/"([A-Z][A-Z0-9_]*)"/g)) out.add(k[1]);
+  }
+}
+console.log([...out].sort().join("\n"));
+' "$d")"
   missing=""
   for k in $keys; do
     grep -qE "^[[:space:]]*${k}=" "$local_env" || missing="$missing $k"
