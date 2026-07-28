@@ -22,7 +22,7 @@ EdDSA 四鐵則全生態守住、私鑰只在 env、無 SQL injection（全 Pris
 | L1 | LOW | form | `lib/tpass-auth.ts` 留有兩行 `[TEMP DEBUG]` console.error（cookie 名/長度進 log） | 隨 v2 改寫移除 | ✅ |
 | L2 | LOW | appeals | 提交無冷卻/去重——可灌爆 DB 與 Discord 頻道 | 30 分鐘冷卻（查最近一筆 Appeal；毫秒級競態可容忍）+ schema 補索引 | ✅ |
 | L3 | LOW | msg / appeals | admin 可設任意 https webhook URL（有限 SSRF / 個資外導面） | msg pin `chat.googleapis.com`（警告改強制）；appeals pin `discord.com`/`discordapp.com` | ✅ |
-| L4 | LOW | auth | JWT TTL 8h、無撤銷機制——身分失守後 token 有效至過期 | 接受風險（授權每請求查 DB allowlist 已緩解）；未來如需即時撤銷再做 iat-cutoff | 📝 |
+| L4 | LOW | auth | per-service JWT TTL（原 8h）、無即時撤銷機制——身分失守後 token 有效至過期 | **2026-07-27 更新**：TTL 從 8h 降到 `JWT_TTL_SECONDS`（建議 45 分鐘），外洩/濫用窗口縮小 90%+；auth 登入態另拆 `AUTH_SESSION_TTL_SECONDS`（預設 12h，只影響「還算登入」，不影響單一服務 token 的外洩窗口）；ban 額外靠 `Subject.sessionsValidFrom` 讓 auth 登入態立即失效（換不到任何新票），已發出的 per-service 舊票仍活到自己的 `exp`（同一上限）。風險縮小仍接受：無狀態本地驗章（消費端不回呼 auth）是契約 v2 的地基，真正的即時撤銷要放棄這個地基，暫不做 | 📝 |
 | I1 | INFO | auth | 單一 kid `tpass-key-1`，無輪替程序 | JWKS 已支援多鑰；輪替 runbook 待未來需要時撰寫 | 📝 |
 | I2 | INFO | directory | `/api/internal/admin-sync` 接收端未實作；實作時 bearer secret 要 constant-time 比對、來源 env | directory 已封存，僅記錄 | 📝 |
 | I3 | INFO | v2 取捨 | per-service cookie 使單點登出弱化為「auth 不發新票 + 舊票 ≤8h 過期」 | 契約 v2 已文檔化的刻意取捨 | 📝 |
@@ -36,12 +36,32 @@ EdDSA 四鐵則全生態守住、私鑰只在 env、無 SQL injection（全 Pris
 - 全部驗章鎖 `algorithms:["EdDSA"]`（六個 repo 逐一確認）；全在 server 端；無 localStorage token。
 - 私鑰只在 `JWT_PRIVATE_KEY` env；`gen-keys.mjs` 不落盤；`.env*`/`*.pem` 全 gitignore；
   `git ls-files` 確認各 repo 只追蹤 `.env.example`（占位值）。
-- 授權（2026-07 改為 OIDC 標準 group claim）：auth 依 `AUTH_GROUPS` 設定發 per-service `groups` 章，
-  各消費端只讀 `session.groups`（`admin` / `super-admin`）本地授權，不再自維護 allowlist / DB 名單；
-  細粒度授權（如問卷回覆限 owner/super-admin）仍在各服務本地，每個 server action 重呼 guard。
+- 授權：**2026-07-27 改為 `permissions` claim + auth 內建 DB（Subject/Grant/AuditLog）+ 網頁後台
+  `/admin`**（取代舊的 `AUTH_GROUPS` env 名單，見下方「權限系統上線」）。各消費端只讀
+  `session.permissions[serviceId]`（`read`/`role`/`restriction`）本地授權，不再自維護 allowlist；
+  細粒度授權（如問卷回覆限 owner/admin）仍在各服務本地，每個 server action 重呼 guard。
+  `groups` 曾雙發、降級為過渡期相容層（由 `role` 推導）；**2026-07-27 Phase 7 退場完成**——
+  auth 簽發邏輯與五個消費端程式碼已全數移除 `groups`，token 裡不再有這個欄位。
   舊的 `role:"student"` placeholder 與各服務 `SUPER_ADMIN_EMAILS` ∪ DB Admin 表已移除。
 - CSRF：狀態變更走 server actions（框架 Origin 檢查）或 SameSite=Lax POST；logout 限 POST。
 - DB：無 `$queryRaw` / `Unsafe`；Prisma 參數化。
+
+## 權限系統上線（permissions claim + panel，2026-07-27）
+
+取代舊的 `AUTH_GROUPS` env 名單：auth 新增 DB（Subject/Grant/AuditLog）+ 網頁後台 `/admin`，
+JWT 改帶 `permissions` claim（role 三級 + restriction 兩種管制）。以下是這次上線的安全設計與
+已接受的風險，逐條記錄（非「發現的漏洞」，而是新功能上線前的自我審查）。
+
+| ID | 級別 | 主題 | 設計 / 風險 | 處置 | 狀態 |
+| --- | --- | --- | --- | --- | --- |
+| P1 | — | panel 守門模型 | `/admin` 本身的存取權就是這套權限模型自己（serviceId=`auth` 的 Grant，`role∈{admin,moderator}`）+ `AUTH_SUPERADMINS`（env 逃生門，不進 DB，DB 掛掉照樣有效） | 全走 server actions，不開 REST 管理端點（沒有可被繞過 layout 直打的 API 面）；每個 server action 各自呼叫 `requireAuthAdmin()` / `requireAuthModerator()`，不只靠 layout 擋 | ✅ |
+| P2 | — | moderator 不可改 role | moderator 能下 warning/ban（含填 reason/到期），但**不能**把任何人（含自己）的 `role` 改成 admin/moderator/default——防止「有管制權限的人」自我提權 | server action 層檢查，非只藏 UI 按鈕 | ✅ |
+| P3 | — | superadmin 保護 | 不能 ban／降級 `AUTH_SUPERADMINS` 名單內的人；admin 不能調降自己在 auth 的 role（防手滑把自己鎖在 panel 外、DB 又剛好沒有其他 admin） | server action 層檢查 | ✅ |
+| P4 | — | audit log | 每次權限變更（role / restriction）寫一筆 `AuditLog`（at / actorEmail / targetEmail / serviceId / action / before / after）——「誰把我 ban 的」的追溯需求，一次 insert 是最便宜的保險 | `/admin/audit` 可查閱、可過濾 | ✅ |
+| P5 | LOW | fail-open 降級 | 簽章路徑查權限（`permissionsFor` / `overviewFor`）若 DB 查詢失敗，降級為 `{read:true, role:"default"}`，大聲 log 但不擋登入；一般消費端解析 claim 時同樣的安全預設值（缺 claim / 缺 serviceId → `read:true, role:"default"`） | 刻意選擇可用性優先於懲罰漏網——全鎖等於連救火的人都進不去；`AUTH_SUPERADMINS` 走 env、不受這個降級影響，逃生門仍然有效 | 📝 接受風險 |
+| P6 | — | reason 不進 URL | ban 原因屬敏感資訊（可能含個資 / 糾紛細節）；`authorize` 導向 `/denied?service=<id>` 只帶 service id，reason 由 `/denied` 頁憑使用者自己的 auth session 重查 DB 取得，不落 URL / Referer / 瀏覽器歷史 / 存取 log | 已實作 | ✅ |
+
+對照組：這次上線同時把 L4（TTL / 撤銷機制）的風險面縮小，見上方發現清單 L4 更新。
 
 ## 下次審查提醒
 

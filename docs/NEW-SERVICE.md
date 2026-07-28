@@ -1,24 +1,70 @@
-# TSchool 新服務串接指南
+# T-Pass 服務串接指南
 
-> **給誰讀**：第一次在 TSchool 平台開一個新服務、要讓師生「用學校 Google 帳號登入」的部員。
-> **讀完你會有**：一個能跑、能登入、能上線的服務。
-> **要花多久**：登入串接本身約 30 分鐘（就是複製四個檔）。上線要等有 root 權限的維運部員做前置。
->
-> 這份文件是**自給自足**的：所有 code、設定、指令都寫在裡面，照著做就好。
-> **你只需要你自己的 repo**——不需要 ops repo、不需要任何自製指令工具。
-> 底下寫的每一行都是原生的 `pnpm` / `ssh`，你看得懂、也自己改得動。
-> 套件管理**一律 pnpm**（`brew install pnpm`）；不要用 npm / yarn——鎖檔是 `pnpm-lock.yaml`，
-> 混用會生出第二份鎖檔，部署直接炸。
->
-> 相關的另外兩份文件：
-> - 《TSchool 開發與維運手冊》——主機拓樸、nginx、維運用的 `tpass` 遙控器。
-> - 《T-Pass Design System》——UI 風格規範（本文件不重複它，做畫面時看那份）。
+> 在 TSchool 平台建立新服務，並接入 T-Pass 單一登入（SSO）的完整指引。
 
----
+| | |
+|---|---|
+| **適用對象** | 首次建立服務、需讓師生以學校 Google 帳號登入的開發成員 |
+| **預期成果** | 一個可執行、可登入、可上線的服務 |
+| **預估時間** | 登入串接約 30 分鐘；上線另需維運成員完成前置作業 |
+| **相依文件** | 《開發與維運手冊》、《T-Pass Design System》 |
 
-## 0. 一分鐘搞懂登入是怎麼運作的
+## 目錄
 
-**auth 是發票的，你是驗票的。你永遠拿不到、也不需要任何密鑰。**
+- [簡介](#簡介)
+- [運作原理](#運作原理)
+- [事前準備](#事前準備)
+  - [服務註冊](#服務註冊)
+  - [註冊服務 id](#註冊服務-id)
+  - [門戶入口卡片](#門戶入口卡片)
+- [專案結構](#專案結構)
+- [整合登入](#整合登入)
+  - [設定檔](#設定檔)
+  - [驗章核心](#驗章核心)
+  - [接收 token](#接收-token)
+  - [登出](#登出)
+  - [頁面守門](#頁面守門)
+  - [環境變數](#環境變數)
+- [授權：權限管理（permissions claim）](#授權權限管理permissions-claim)
+  - [權限模型](#權限模型)
+  - [解析權限：擴充 tpass-auth.ts](#解析權限擴充-tpass-authts)
+  - [權限判斷函式](#權限判斷函式)
+  - [於頁面與 API 守門](#於頁面與-api-守門)
+  - [呈現警告：WarningBanner](#呈現警告warningbanner)
+  - [細粒度授權](#細粒度授權)
+  - [管理權限：auth 的 /admin panel](#管理權限auth-的-admin-panel)
+  - [驗收：授權](#驗收授權)
+- [本機開發](#本機開發)
+  - [建立本機憑證](#建立本機憑證)
+  - [啟動本機 auth](#啟動本機-auth)
+  - [設定 dev 指令](#設定-dev-指令)
+  - [啟動服務](#啟動服務)
+  - [提交前檢查](#提交前檢查)
+  - [驗收清單](#驗收清單)
+- [部署](#部署)
+  - [部署指令](#部署指令)
+- [疑難排解](#疑難排解)
+- [安全規範](#安全規範)
+- [參考：JWT Payload](#參考jwt-payload)
+- [參考：services.json 欄位](#參考servicesjson-欄位)
+
+## 簡介
+
+T-Pass 是 TSchool 平台的單一登入機制。師生以學校 Google 帳號登入一次，即可通行所有子服務。其架構遵循一項核心原則：**auth 負責發證，各服務負責驗證；服務不持有、也不需要任何私鑰。**
+
+本指南是自給自足的：所有程式碼、設定、指令皆完整寫在文件中，依序操作即可完成串接。新服務只需要自己的 repo——不需要存取 ops repo，也不需要任何自製工具，文件中使用的皆為原生 `pnpm` 與 `ssh` 指令。
+
+> [!IMPORTANT]
+> 套件管理一律使用 pnpm，鎖檔為 `pnpm-lock.yaml`。混用 npm 或 yarn 會產生第二份鎖檔，導致部署失敗。
+
+另有兩份相依文件，適用於不同階段：
+
+- 《TSchool 開發與維運手冊》——主機拓樸、nginx、維運用的 `tpass` 遙控器。
+- 《T-Pass Design System》——UI 風格規範，本文件不重複其內容，設計畫面時請參閱該份文件。
+
+## 運作原理
+
+T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負責驗證。服務永遠拿不到、也不需要任何私鑰。**
 
 ```
 ①  使用者連到你的服務，你的後端發現他沒登入
@@ -36,57 +82,53 @@
 ④  之後每個請求：讀自己的 cookie → 自己驗章 → 認出使用者。全程不用再打 auth。
 ```
 
-三個關鍵設計，記住就好：
+三個關鍵設計如下：
 
-| 設計 | 白話 | 為什麼 |
+| 設計 | 說明 | 目的 |
 | --- | --- | --- |
-| **你只拿公鑰** | 你不碰 Google、不碰私鑰、不用呼叫 auth 的 API | 驗章在你自己家做，auth 掛了也不影響已登入的人 |
-| **票是一服務一張** | 你的 token `aud=tpass:<你的id>`，拿去別的服務一律驗不過 | 你的服務被打爆，也炸不到別人 |
-| **cookie 只留在你家** | cookie 不設 `Domain`（host-only） | 瀏覽器不會把你的通行證送去任何其他服務 |
+| **服務只持有公鑰** | 服務不接觸 Google、不接觸私鑰，也不需要呼叫 auth 的 API | 驗章在服務自己的後端完成，auth 故障不影響已登入的使用者 |
+| **票證一服務一張** | token 的 `aud=tpass:<你的id>`，用於其他服務一律驗證失敗 | 單一服務被攻擊，不會波及其他服務 |
+| **cookie 限定本服務網域** | cookie 不設 `Domain`（host-only） | 瀏覽器不會把通行證送往任何其他服務 |
 
-> ⚠️ **純前端 SPA 接不了**。cookie 是 `HttpOnly`、驗章要在 server 做，所以你**必須有後端**。
-> Next.js 的 Route Handler / Server Component 就是後端，沒問題。
-> **絕不把 token 放 `localStorage`。**
+> [!IMPORTANT]
+> 純前端 SPA 無法完成此串接。cookie 為 `HttpOnly`，驗章須在 server 端進行，因此服務必須具備後端。Next.js 的 Route Handler / Server Component 即可作為後端。**絕不將 token 存放於 `localStorage`。**
 
----
+## 事前準備
 
-## 1. 開工前：跟維運部員要三樣東西
+新服務不需要 ops repo，但有三項資源僅維運成員持有，需先取得後才能開始：
 
-你不需要 ops repo。但有三樣東西只有維運拿得到，先要好再開工：
-
-| 要什麼 | 幹嘛用 | 什麼時候要 |
+| 項目 | 用途 | 取得時機 |
 | --- | --- | --- |
-| **服務 id + port** | 你的身分證與門牌（例：`lost` / `3006`）。維運會登記進 `services.json` | 現在 |
-| **dev 密鑰包** | 一組**僅限本機**的 Google OAuth client（id + secret）。用來在你自己電腦上跑一份 auth | 現在（§4 要用） |
-| **主機 ssh 帳號** | 上線時用。**絕不寫進任何 repo、commit、PR** | 上線時（§5） |
+| **服務 id + port** | 服務的身分識別與門牌（例：`lost` / `3006`）。由維運登記進 `services.json` | 開始前 |
+| **dev 密鑰包** | 一組僅限本機使用的 Google OAuth client（id + secret），用於本機執行 auth | 開始前（〈本機開發〉會用到） |
+| **主機 ssh 帳號** | 上線時使用。**絕不寫入任何 repo、commit、PR** | 上線時（見〈部署〉） |
 
-> 🔑 dev 的 Google client 跟正式站是**不同兩組**，dev 只放行 `*.lvh.me` 的回跳。
-> 就算外流也動不到正式站。**但還是不要貼進 Slack / commit。**
+> [!IMPORTANT]
+> dev 的 Google client 與正式站是不同的兩組，dev 僅放行 `*.lvh.me` 的回跳網址。即使外流也不影響正式站，但仍不應貼入 Slack 或提交至版本控制。
 
-服務 id 是你的身分證。**它同時是**：pm2 程序名 ＝ 環境變數 `TPASS_SERVICE_ID` ＝ JWT 的 `aud` 後綴 ＝ 你的子網域。**取好就永不改名**（短、全小寫，例：`form`、`msg`、`lost`）。
+服務 id 是服務的身分識別，同時對應：pm2 程序名 ＝ 環境變數 `TPASS_SERVICE_ID` ＝ JWT 的 `aud` 後綴 ＝ 服務子網域。**id 一經選定即不再更名**（建議短、全小寫，例：`form`、`msg`、`lost`）。
 
-以下用 `lost`（遺失物）、port `3006` 當範例，你自己換掉。
+以下以 `lost`（遺失物）、port `3006` 為範例，實作時請替換為實際服務 id 與 port。
 
-### 1.1 登記進 `services.json`（維運做）
+### 服務註冊
 
-維運會在 ops repo 加一筆（port 撞車會被擋下），`deployed` 先留 `false`，等你真的上線成功才翻 `true`。
-欄位意思見 **附錄 B**。你不用碰這個檔。
+維運成員會在 ops repo 新增一筆登記（port 若衝突會被驗證擋下），`deployed` 欄位初始為 `false`，待服務成功上線後才改為 `true`。欄位定義見〈參考：services.json 欄位〉。此檔案不需自行修改。
 
-### 1.2 讓 auth 認得你
+### 註冊服務 id
 
-不做這步，authorize 會直接回 `400 Unknown service`。
+若略過此步驟，authorize 請求將直接回傳 `400 Unknown service`。
 
-在 auth 的 `.env.local` 白名單加上你的 id，然後**重啟 auth**：
+需在 auth 的 `.env.local` 白名單中加入服務 id，並重啟 auth：
 
 ```bash
 AUTH_SERVICE_IDS=portal,form,msg,appeals,lost
 ```
 
-**本機那份**你自己改（§4.2 會跑到）；**主機那份**上線時改（§5）。兩邊都要。
+本機環境由開發者自行修改（見〈本機開發〉「啟動本機 auth」）；主機環境於上線時修改（見〈部署〉）。兩處皆須設定。
 
-### 1.3 在門戶大廳放一張卡片
+### 門戶入口卡片
 
-使用者要在 portal 首頁點得到你，才算真的上線。卡片的網址是 **env 驅動**的，所以要動四個地方——**少一個 portal 就會 build 失敗**：
+服務需在 portal 首頁提供入口，使用者才能實際觸及。卡片網址為 env 驅動，需同步修改四處，缺一即會導致 portal build 失敗：
 
 **① `tpass-portal/src/config/services.ts` — `services[]` 加一筆**
 
@@ -110,21 +152,19 @@ const REQUIRED = ["FORM_URL", "MSG_URL", "APPEALS_URL", "LOST_URL"] as const;
 
 **③ portal 的本機 `.env.local`**：`LOST_URL=https://lost.lvh.me:3006`
 
-**④ portal 的主機 `.env.local`**：`LOST_URL=https://lost.tschoolsu.org` → **然後重新部署 portal**（§5）。
+**④ portal 的主機 `.env.local`**：`LOST_URL=https://lost.tschoolsu.org` → **然後重新部署 portal**（見〈部署〉）。
 
-> ⚠️ ②做了但④沒做，portal 下次部署會在 build 前被 env 檢查擋下（`缺少必填變數：LOST_URL`），
-> 而且**是下一個要部署 portal 的人踩到**，不是你。這四步要一次做完。
+> [!WARNING]
+> 若完成第②步而未完成第④步，portal 下次部署時會在 build 前被 env 檢查擋下（`缺少必填變數：LOST_URL`），且此問題會由下一位部署 portal 的人員遭遇，而非本次變更者。四個步驟須一次完成。
 
----
+## 專案結構
 
-## 2. 開專案骨架
+服務一律採用 **Next.js 16 + React 19**（與生態系其他服務一致）。
 
-一律 **Next.js 16 + React 19**（跟生態系其他五個服務一致）。
+> [!WARNING]
+> Next 16 存在破壞性變更，其 API 可能與既有認知不同。撰寫程式碼前請先參閱 `node_modules/next/dist/docs/`。
 
-> ⚠️ Next 16 有破壞性變更，API 跟你（或 AI）記憶中的可能不一樣。寫 code 前先翻
-> `node_modules/next/dist/docs/`。
-
-你的 repo 該長這樣：
+repo 結構如下：
 
 ```
 tpass-lost/
@@ -138,19 +178,19 @@ tpass-lost/
     └── logout/route.ts          ← ★ 登出
 ```
 
-打星號的四個檔就是登入串接的全部。下一節直接給你完整的 code。
+標星號的四個檔案即登入串接的全部內容，詳見〈整合登入〉。
 
----
-
-## 3. 串登入：複製四個檔
+## 整合登入
 
 ```bash
 pnpm add jose
 ```
 
-底下把 `lost` / `LOST` 換成你的服務 id 就能用。
+以下範例將 `lost` / `LOST` 替換為實際服務 id 即可使用。
 
-### 3.1 `src/config/lost.ts` — 設定集中在這裡（全部從 env 讀）
+### 設定檔
+
+`src/config/lost.ts` — 設定集中於此，全部透過 env 讀取：
 
 ```ts
 import "server-only";
@@ -200,7 +240,9 @@ export const lostConfig = {
 } as const;
 ```
 
-### 3.2 `src/lib/tpass-auth.ts` — 驗章核心（**安全四鐵則就在這**）
+### 驗章核心
+
+`src/lib/tpass-auth.ts` — 驗章核心，安全四鐵則實作於此：
 
 ```ts
 import "server-only";
@@ -208,11 +250,27 @@ import { cookies } from "next/headers";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { lostConfig } from "@/config/lost";
 
+// 權限 claim 契約：role 三級（admin 隱含 moderator）、restriction 省略＝none、
+// read 是唯一必看欄位（auth 已經算好 = restriction !== "ban"）。詳見〈授權：權限管理〉。
+export type Role = "admin" | "moderator" | "default";
+export type Restriction = "none" | "warning" | "ban";
+
+export interface PermissionEntry {
+  read: boolean;
+  role: Role;
+  restriction?: Restriction;
+  reason?: string;
+  until?: number;
+}
+
+export type PermissionMap = Record<string, PermissionEntry>;
+
 export interface TPassClaims {
   sub: string;            // 使用者唯一 id（跨服務一致，可當你 DB 的主鍵）
   email: string;          // 學校信箱
   name: string;           // 顯示名稱
-  groups: string[];       // 授權章：此人在本服務屬於哪些群組（admin / super-admin）。授權只看這個
+  // 權限本體：一般服務 token 只含自己一把 key（{ lost: {...} }）。授權判斷一律看這裡。
+  permissions: PermissionMap;
   exp: number;
 }
 
@@ -231,7 +289,7 @@ export async function verifySession(token: string): Promise<TPassClaims | null> 
       sub: payload.sub as string,
       email: payload.email as string,
       name: payload.name as string,
-      groups: Array.isArray(payload.groups) ? (payload.groups as string[]) : [],
+      permissions: (payload.permissions as PermissionMap | undefined) ?? {},
       exp: payload.exp as number,
     };
   } catch {
@@ -245,18 +303,31 @@ export async function getSession(): Promise<TPassClaims | null> {
   if (!token) return null;
   return verifySession(token);
 }
+
+// 安全預設值：claim 缺 permissions、或缺你要查的 serviceId 這把 key（舊票／查別服務）
+// → 視為「能讀、預設角色」，不因缺資料而誤鎖使用者。不傳 serviceId 預設查自己這個服務。
+const DEFAULT_PERMISSION_ENTRY: PermissionEntry = { read: true, role: "default" };
+
+export function permOf(
+  session: TPassClaims,
+  serviceId: string = lostConfig.serviceId,
+): PermissionEntry {
+  return session.permissions[serviceId] ?? { ...DEFAULT_PERMISSION_ENTRY };
+}
 ```
 
-**這四條鐵則缺一不可**：
+四鐵則缺一不可：
 
-1. **鎖 `algorithms: ["EdDSA"]`** — 不鎖的話，任何人都能拿你**公開的公鑰**當 HMAC 密鑰去偽造 token（把 header 的 `alg` 改成 `HS256`，沒鎖的函式庫會傻傻地用公鑰當對稱密鑰驗過）。等於誰都能冒充任何人登入。
-2. **檢查 `issuer`** — 票是「這個 auth」簽的，不是別人。
-3. **檢查 `audience` = `tpass:<你的id>`** — 票是簽給**你**的。漏掉這條，別的服務的 token 就能拿來打你，隔離等於白做。
-4. **檢查 `exp`** — 主流函式庫預設會驗，確認你沒關掉。
+1. **鎖定 `algorithms: ["EdDSA"]`**——若不鎖定，任何人皆可利用公開的公鑰偽造 token（將 header 的 `alg` 改為 `HS256`，未鎖定演算法的函式庫會將公鑰誤用為對稱密鑰驗證通過），等同任何人皆可冒充任意使用者登入。
+2. **檢查 `issuer`**——確保票證由指定的 auth 簽發，而非其他來源。
+3. **檢查 `audience` = `tpass:<你的id>`**——確保票證是簽發給本服務的。遺漏此檢查，其他服務的 token 即可用於冒用本服務，服務隔離形同虛設。
+4. **檢查 `exp`**——主流函式庫預設會驗證，需確認未被關閉。
 
-驗不過 → **一律當「未登入」**，導去登入。**不要把錯誤訊息丟給前端。**
+驗證失敗一律視為「未登入」並導向登入流程。**不應將錯誤訊息回傳給前端。**
 
-### 3.3 `src/app/api/auth/callback/route.ts` — 收 token
+### 接收 token
+
+`src/app/api/auth/callback/route.ts`：
 
 ```ts
 import { NextResponse, type NextRequest } from "next/server";
@@ -292,9 +363,9 @@ export async function POST(request: NextRequest) {
 }
 ```
 
-### 3.4 `src/app/api/auth/logout/route.ts` — 兩段式登出
+### 登出
 
-登出要清兩個地方：**你自己的 cookie**（只有你能清）＋ **auth 的登入態**。
+`src/app/api/auth/logout/route.ts` — 登出須清除兩處：本服務自身的 cookie（僅本服務可清除）與 auth 的登入態。
 
 ```ts
 import { NextResponse } from "next/server";
@@ -328,7 +399,7 @@ export async function POST() {
 }
 ```
 
-前端就是一個表單：
+前端僅需一個表單：
 
 ```tsx
 <form method="post" action="/api/auth/logout">
@@ -336,11 +407,12 @@ export async function POST() {
 </form>
 ```
 
-> auth 清掉自己的登入態後，會把使用者 303 導回你的服務（網址帶 `?logout=1`——那**純粹是畫面提示**，不是身分憑證，不可拿它當「已登出」的依據）。
+> [!NOTE]
+> auth 清除自身登入態後，會將使用者以 303 導回本服務（網址附帶 `?logout=1`，此參數僅為畫面提示，不具身分憑證效力，不可作為「已登出」的判斷依據）。
 >
-> 其他服務的 cookie 會留到各自過期（最多 8 小時）。這是「一服務一張票」換來的已知取捨：登出不再是全生態即時，而是「auth 不再發新票 + 舊票自然過期」。
+> 其他服務的 cookie 會保留至各自過期（最長＝auth 端 `JWT_TTL_SECONDS`，建議 45 分鐘）。這是「一服務一張票」設計下的已知取捨：登出不再是全生態即時生效，而是「auth 不再發新票 + 舊票自然過期」。
 
-### 3.5 在頁面裡擋登入 / 拿使用者
+### 頁面守門
 
 ```tsx
 // src/app/page.tsx（Server Component）
@@ -356,10 +428,12 @@ export default async function Page() {
 }
 ```
 
-> ⚠️ **每個 route handler / server action 都要自己再 `getSession()` 檢查一次**，
-> 不能只靠 layout 或頁面擋——layout 擋不住有人直接打你的 API。
+> [!WARNING]
+> 每個 route handler / server action 都必須各自呼叫 `getSession()` 進行檢查，不能僅依賴 layout 或頁面層級的攔截——layout 無法阻擋直接呼叫 API 的請求。
 
-### 3.6 `.env.local`（本機）
+### 環境變數
+
+`.env.local`（本機）：
 
 ```bash
 TPASS_SERVICE_ID=lost
@@ -370,24 +444,231 @@ AUTH_LOGOUT_URL=https://auth.lvh.me:3000/api/auth/logout
 LOST_SELF_URL=https://lost.lvh.me:3006
 ```
 
-**永遠不要把網址寫死在程式裡**——上線時只改這個檔（換成 `*.tschoolsu.org`、沒有 port），程式一行都不用動。同時把這些 key（用占位值）補進 `.env.example` 給下一個人。
+網址不應寫死於程式碼中——上線時僅需修改此檔（改為 `*.tschoolsu.org`，不含 port），程式碼無需異動。同時將這些 key（以佔位值表示）補入 `.env.example`，供後續維護者參考。
 
-> `lvh.me` 這個網域由公共 DNS 直接解析到 `127.0.0.1`，所以本機開發**不用改 `/etc/hosts`**。
+> [!NOTE]
+> `lvh.me` 這個網域由公共 DNS 直接解析到 `127.0.0.1`，因此本機開發不需修改 `/etc/hosts`。
 
----
+## 授權：權限管理（permissions claim）
 
-## 4. 在自己電腦上跑起來
+登入（authentication）確認「你是誰」；授權（authorization）決定「你能做什麼」。兩者是不同的機制，需分別實作。T-Pass 的授權模型：**auth 於 token 中蓋上 `permissions` 章（per-service 的 role + 管制狀態），各服務讀取 `permissions` 於本地判斷權限。** 服務不自行維護管理員名單、不查詢資料庫——名單維護在 auth 的 **`/admin` 網頁 panel**，不是環境變數。
 
-要測登入，你得**同時跑兩個東西**：一份 **auth**（發票的）＋ **你的服務**（驗票的）。
-兩個都必須是 **HTTPS**，而且都必須跑在 `*.lvh.me` 的子網域上。
+### 權限模型
 
-> **為什麼不能接正式的 auth 來測？** auth 有 `AUTH_ALLOWED_HOST_SUFFIX` 白名單，
-> 正式站只放行 `*.tschoolsu.org` 的回跳網址。你本機的 `lost.lvh.me` 一定被擋
-> （`400 Invalid redirect_uri`）。這是防 Open Redirect 的設計，不是 bug。
+`permissions` 是 `Record<服務id, PermissionEntry>`，一般服務 token 只含自己一把 key：
 
-### 4.1 一次性：做一張本機憑證
+```ts
+type Role        = "admin" | "moderator" | "default";
+type Restriction = "none"  | "warning"   | "ban";
 
-Google 登入完要用 HTTPS 回來，你的後端也要用 HTTPS 去抓 auth 的公鑰。所以本機一定要有憑證。
+interface PermissionEntry {
+  read: boolean;             // 必有。唯一必看欄位，auth 已經算好（= restriction !== "ban"）
+  role: Role;                // 必有。admin 隱含 moderator
+  restriction?: Restriction; // 省略＝none
+  reason?: string;           // 只在 restriction !== "none" 時出現
+  until?: number;            // 選填 Unix 秒，管制到期自動解除
+}
+```
+
+- **`role`**：三級，`admin` 隱含 `moderator` 的所有能力，`default` 是一般使用者。
+- **`restriction`**：`warning`（提醒，仍可使用，呈現方式自訂）與 `ban`（禁止使用，auth 已在
+  `authorize` 階段攔截，正常情況下你的服務根本收不到 ban 者的新票）。
+- **`read`** 是唯一必看欄位：`if (!perm.read) redirect(deniedUrl)` 就是完整的 ban 守門邏輯。
+- 權限變更（在 `/admin` panel 存檔）最長 `JWT_TTL_SECONDS`（auth 端設定，建議 45 分鐘）後生效
+  ——這是換票成本換來的取捨，細節與 ban 立即失效的例外見 `tpass-auth/INTEGRATION.md` §3.5。
+
+> [!NOTE]
+> 舊版曾有 `groups` claim（`groups.includes("admin")`），已於 2026-07-27 從 auth 簽發邏輯
+> 與所有消費端程式碼中移除。**新服務只認 `permissions`**，不會也不應該再寫 `groups.includes(...)`。
+
+### 解析權限：擴充 tpass-auth.ts
+
+若照〈驗章核心〉的範例，`permOf()` 已經在 `src/lib/tpass-auth.ts` 裡了（缺 claim 或缺該
+serviceId 這把 key 時安全預設為 `{read:true, role:"default"}`，不會因缺資料誤鎖使用者）。
+接下來的權限判斷都建立在它之上。
+
+### 權限判斷函式
+
+新增 `src/config/admin.ts`，將 role 判斷收斂於單一處：
+
+```ts
+import "server-only";
+import { permOf, type TPassClaims } from "@/lib/tpass-auth";
+
+export function isAdmin(session: TPassClaims | null | undefined): boolean {
+  return !!session && permOf(session).role === "admin";
+}
+
+export function isModeratorOrAbove(session: TPassClaims | null | undefined): boolean {
+  return !!session && permOf(session).role !== "default";
+}
+```
+
+新增 `src/lib/guard.ts`，提供各層重用的守門函式：
+
+```ts
+import "server-only";
+import { redirect } from "next/navigation";
+import { getSession, permOf, type TPassClaims } from "@/lib/tpass-auth";
+import { isAdmin } from "@/config/admin";
+import { loginUrlFor, lostConfig } from "@/config/lost";
+
+export class ForbiddenError extends Error {
+  constructor() {
+    super("Forbidden");
+    this.name = "ForbiddenError";
+  }
+}
+
+export async function requireSession(returnPath = "/"): Promise<TPassClaims> {
+  const session = await getSession();
+  if (!session) redirect(loginUrlFor(returnPath));
+  // read 守門：正常情況 ban 在 authorize 就被攔下；這裡是給「舊票在被 ban 之後、
+  // 過期之前」窗口用的防禦層（見 tpass-auth/INTEGRATION.md §3.5）。
+  if (!permOf(session).read) redirect(`${process.env.AUTH_DENIED_URL}?service=${lostConfig.serviceId}`);
+  return session;
+}
+
+export async function requireAdmin(returnPath = "/admin"): Promise<TPassClaims> {
+  const session = await requireSession(returnPath);
+  if (!isAdmin(session)) throw new ForbiddenError();
+  return session;
+}
+```
+
+> [!NOTE]
+> `AUTH_DENIED_URL` 是選填 env：沒設就用 `AUTH_AUTHORIZE_URL` 的 origin 自動推導
+> `<origin>/denied`，通常不用另外設。想自訂就在 `.env.local` 加一行即可。
+
+### 於頁面與 API 守門
+
+後台頁面以 layout 統一攔截：未登入者導向登入頁，已登入但非管理員者顯示禁止存取畫面。
+
+```tsx
+// src/app/admin/layout.tsx
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/tpass-auth";
+import { isAdmin } from "@/config/admin";
+import { loginUrlFor } from "@/config/lost";
+
+export default async function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await getSession();
+  if (!session) redirect(loginUrlFor("/admin"));
+  if (!isAdmin(session)) {
+    return <p>你沒有存取此頁面的權限。</p>; // 替換為你的禁止存取畫面
+  }
+  return <>{children}</>;
+}
+```
+
+> [!WARNING]
+> layout 無法阻擋直接呼叫 API 的請求。**每個 route handler 與 server action 都必須各自重新檢查權限**，不能僅依賴 layout 或頁面層級的攔截。
+
+route handler 於內部自行檢查，未通過回應 `403`：
+
+```ts
+import { NextResponse } from "next/server";
+import { getSession } from "@/lib/tpass-auth";
+import { isAdmin } from "@/config/admin";
+
+export async function GET() {
+  const session = await getSession();
+  if (!session || !isAdmin(session)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  // …此處為管理員邏輯
+}
+```
+
+server action 則以 `requireAdmin` 攔截，非管理員會拋出 `ForbiddenError`：
+
+```ts
+"use server";
+import { requireAdmin } from "@/lib/guard";
+
+export async function deleteItem(id: string) {
+  await requireAdmin();
+  // …此處為管理員邏輯
+}
+```
+
+### 呈現警告：WarningBanner
+
+`restriction === "warning"` 的呈現方式由各模組自訂——沒有固定版型，但 `tpass-portal` 有一份
+可直接抄的範本：`tpass-portal/src/components/WarningBanner.tsx`。核心邏輯只有兩行：
+
+```tsx
+const perm = permOf(session);
+{perm.restriction === "warning" && <WarningBanner reason={perm.reason} until={perm.until} />}
+```
+
+### 細粒度授權
+
+`role` 判斷的是角色層級的權限（是否為管理員）。「能否讀取**某一筆**資料」屬於資源層級的授權，仍應於服務本地依資料的擁有者實作。例如「回覆內容僅限建立者本人或管理員讀取」：
+
+```ts
+import { isAdmin } from "@/config/admin";
+import type { TPassClaims } from "@/lib/tpass-auth";
+
+export function canReadResponses(
+  session: TPassClaims,
+  form: { ownerSub: string },
+): boolean {
+  return isAdmin(session) || form.ownerSub === session.sub;
+}
+```
+
+> [!NOTE]
+> 擁有者比對使用 `sub` 而非 `email`。`sub` 是跨服務一致的穩定識別碼，`email` 則可能變動。
+
+### 管理權限：auth 的 `/admin` panel
+
+權限名單**不再寫在任何服務的環境變數裡**。改成登入 auth 的網頁後台管理：
+
+```
+https://auth.lvh.me:3000/admin          # 本機
+https://auth.tschoolsu.org/admin        # 正式站
+```
+
+| 操作 | 位置 |
+|---|---|
+| 找人 / 新增人員（只需 email，不必等對方登入過） | `/admin/people`、`/admin/people/new` |
+| 幫某人在**你的服務**設 role（admin/moderator）或下 restriction（warning/ban + 原因 + 到期） | `/admin/people/[email]` — 每個服務一列 |
+| 只看你服務的名單 | `/admin/services/<你的服務id>` |
+| 稽核紀錄（誰在什麼時候改了誰） | `/admin/audit` |
+
+panel 本身的存取權：`AUTH_SUPERADMINS`（生態總管，逃生門）或在 auth 這個服務本身被設為
+admin/moderator 的人。**moderator 可以下 warning/ban，但不能改 role**；不能 ban 或降級
+superadmin；不能調降自己在 auth 的 role。ban 需二次確認且必填原因。
+
+> [!IMPORTANT]
+> 存檔後**不會**立即讓對方的舊票失效（除非是 ban——ban 會讓對方的 auth 登入態立刻作廢）。
+> 一般的 role/warning 變更，生效延遲最長＝`JWT_TTL_SECONDS`（建議 45 分鐘），對方下次換票
+> 才會拿到新權限。panel 會顯示「最晚 HH:MM 生效」。
+
+### 驗收：授權
+
+- [ ] 在 `/admin` 把某人設為你服務的 admin → 他重新登入（或等舊票過期換票）後進得了 `/admin`（你自己服務的後台）。
+- [ ] 名單外的人登入後於你的 `/admin` 被擋下（顯示禁止存取畫面）。
+- [ ] 在 `/admin` 對某人下 `ban` + 原因 → 他重新走一次登入被導去 `<auth>/denied?service=<你的id>`，看得到原因與（若有設）解封時間。
+- [ ] 解除 ban 後，他能重新登入使用。
+- [ ] 對某人下 `warning` → 他登入後在你的服務看得到警告呈現（你自訂的版型，例如照抄 `WarningBanner`）。
+- [ ] `permOf(session)` 對缺資料的情況（例如剛登記還沒設定）回傳安全預設值 `{read:true, role:"default"}`，不會誤鎖使用者。
+
+## 本機開發
+
+測試登入需同時執行兩個服務：一份 **auth**（發證端）與**目標服務**（驗證端）。兩者皆須為 **HTTPS**，且皆須運行於 `*.lvh.me` 的子網域上。
+
+> [!NOTE]
+> **為何不能串接正式站的 auth 進行測試？** auth 設有 `AUTH_ALLOWED_HOST_SUFFIX` 白名單，正式站僅放行 `*.tschoolsu.org` 的回跳網址，本機的 `lost.lvh.me` 必定被擋下（`400 Invalid redirect_uri`）。這是防止 Open Redirect 的設計，非缺陷。
+
+### 建立本機憑證
+
+Google 登入完成後需以 HTTPS 回跳，後端也須以 HTTPS 抓取 auth 的公鑰，因此本機必須具備憑證。此步驟僅需執行一次：
 
 ```bash
 brew install mkcert nss node pnpm
@@ -397,10 +678,12 @@ mkcert -cert-file cert.pem -key-file key.pem \
        auth.lvh.me portal.lvh.me lost.lvh.me      # 一張憑證涵蓋你會用到的子網域
 ```
 
-> `lvh.me` 是一個公共 DNS 名稱，**永遠解析到 `127.0.0.1`**。所以你不用改 `/etc/hosts`，
-> 又能拿到真正的子網域——cookie 的 host-only 行為才測得準（用 `localhost` 測不出來）。
+> [!NOTE]
+> `lvh.me` 是一個公共 DNS 名稱，永遠解析到 `127.0.0.1`，因此不需修改 `/etc/hosts`，同時仍能取得真正的子網域——唯有如此才能正確驗證 cookie 的 host-only 行為（以 `localhost` 測試無法驗證此行為）。
 
-### 4.2 一次性：在本機跑一份 auth
+### 啟動本機 auth
+
+此步驟僅需執行一次：
 
 ```bash
 git clone git@github.com:YC815/tpass-auth.git
@@ -410,7 +693,7 @@ node scripts/gen-keys.mjs          # 產一組「你自己的」dev EdDSA 金鑰
 cp .env.example .env.local
 ```
 
-`.env.local` 填成這樣（`GOOGLE_*` 兩行跟維運要）：
+`.env.local` 填入以下內容（`GOOGLE_*` 兩行需向維運成員索取）：
 
 ```bash
 GOOGLE_CLIENT_ID=<維運給的 dev client>
@@ -426,17 +709,18 @@ JWT_PRIVATE_KEY=<gen-keys.mjs 印的>              # 你本機自己的一把
 JWT_PUBLIC_KEY=<gen-keys.mjs 印的>
 ```
 
-> 🔑 你產的 dev 金鑰跟**正式主機那把是不同兩把**，這是刻意的：本機金鑰外流也簽不出正式站認得的票。
+> [!IMPORTANT]
+> 這裡產生的 dev 金鑰與正式主機使用的是不同的兩把，此為刻意設計：本機金鑰外流也無法簽發正式站認得的票證。
 
-起 auth（在 `tpass-auth/`，讓它自己佔一個終端機）：
+啟動 auth（於 `tpass-auth/` 目錄下，建議獨佔一個終端機）：
 
 ```bash
 pnpm dev           # auth 的 package.json 已經設好 HTTPS + auth.lvh.me:3000
 ```
 
-### 4.3 你的服務：把 dev 指令寫進 `package.json`
+### 設定 dev 指令
 
-**這是最容易踩坑的一步，三個參數缺一不可。** 直接把這段貼進你 repo 的 `package.json`：
+以下三個參數缺一不可，將此段貼入 repo 的 `package.json`：
 
 ```json
 {
@@ -450,80 +734,72 @@ pnpm dev           # auth 的 package.json 已經設好 HTTPS + auth.lvh.me:3000
 }
 ```
 
-> `packageManager` 讓所有人的 pnpm 自動對齊同一版；`onlyBuiltDependencies` 是 pnpm 10 的
-> build-script 白名單（pnpm 預設不跑依賴的 postinstall——不放行的話 sharp / prisma 的原生
-> 二進位會裝不齊，**本機看起來沒事、上了主機才炸**）。五個服務都是同一份，照抄即可。
+> [!NOTE]
+> `packageManager` 使所有開發者的 pnpm 版本自動對齊；`onlyBuiltDependencies` 是 pnpm 10 的 build-script 白名單機制（pnpm 預設不執行依賴套件的 postinstall，若未放行，sharp / prisma 的原生二進位檔將無法完整安裝——此問題在本機不會顯現，僅於部署至主機後才會出現）。五個服務共用同一份設定，可直接複製使用。
 
-三個參數各自在解決什麼：
+三個參數各自解決的問題：
 
-| 參數 | 不加會怎樣 |
+| 參數 | 缺少時的影響 |
 | --- | --- |
-| `--experimental-https...` | 沒有 HTTPS，Google 不肯回跳，`Secure` cookie 也寫不進去 |
-| `-H lost.lvh.me -p 3006` | 跑在 `localhost` 上 → cookie 網域、`redirect_uri`、`aud` 全部對不上，登入必失敗 |
-| `NODE_TLS_REJECT_UNAUTHORIZED=0` | **登入成功後馬上被踢回登入頁，而且沒有任何錯誤訊息** ← 看下面 |
+| `--experimental-https...` | 缺少 HTTPS，Google 不予回跳，`Secure` cookie 亦無法寫入 |
+| `-H lost.lvh.me -p 3006` | 若運行於 `localhost`，cookie 網域、`redirect_uri`、`aud` 全部無法對應，登入必然失敗 |
+| `NODE_TLS_REJECT_UNAUTHORIZED=0` | 登入成功後立即被導回登入頁，且無任何錯誤訊息（詳見下方說明） |
 
-**第三個值得花 30 秒讀懂，不然你會 debug 一整天。**
-你的後端要去 fetch auth 的公鑰（`https://auth.lvh.me:3000/.well-known/jwks.json`）。
-但 Next（Turbopack）server 端用的 fetch（undici）**不吃 `NODE_EXTRA_CA_CERTS`**——
-也就是它**不信任你 mkcert 簽的憑證**。結果是抓公鑰失敗 → 驗章失敗 → 你的 callback 默默回 401 →
-使用者被丟回登入頁，無限鬼打牆。關掉本機的 TLS 驗證就是為了繞開這件事。
+第三項參數的原理值得說明。服務後端需 fetch auth 的公鑰（`https://auth.lvh.me:3000/.well-known/jwks.json`），但 Next（Turbopack）server 端所使用的 fetch（undici）不讀取 `NODE_EXTRA_CA_CERTS`，即不信任 mkcert 簽發的憑證。其結果是公鑰擷取失敗，導致驗章失敗，callback 靜默回傳 401，使用者被導回登入頁並反覆循環。關閉本機的 TLS 驗證即是為了繞過此問題。
 
-> ⚠️ `NODE_TLS_REJECT_UNAUTHORIZED=0` **只准出現在本機的 `dev` 指令裡**。
-> 不要寫進 `.env`、不要寫進 `build` / `start`。正式主機走真憑證，根本不需要它——
-> 把它帶上主機等於關掉所有 TLS 驗證，那是資安事故。
+> [!CAUTION]
+> `NODE_TLS_REJECT_UNAUTHORIZED=0` 僅能出現在本機的 `dev` 指令中，不可寫入 `.env`，也不可寫入 `build` / `start`。正式主機使用真憑證，不需要此設定——若將其帶上主機，等同關閉所有 TLS 驗證，屬於資安事故。
 >
-> 另外注意：**auth 自己不能加這行**（上面 §4.2 的指令就沒有）。它要去驗 Google 的真憑證。
+> 另需注意：**auth 本身不可加入此設定**（〈啟動本機 auth〉的指令中即未包含），因其須驗證 Google 的真實憑證。
 
-### 4.4 跑起來
+### 啟動服務
 
-開兩個終端機：
+開啟兩個終端機：
 
 ```bash
 cd tpass-auth  && pnpm dev      # 終端機 1：發證端 → https://auth.lvh.me:3000
 cd tpass-lost  && pnpm dev      # 終端機 2：你的服務 → https://lost.lvh.me:3006
 ```
 
-然後開 `https://lost.lvh.me:3006`。
+接著開啟 `https://lost.lvh.me:3006`。
 
-**Google 登入不能自動化**（會被 Google 擋，也違反條款），這一關一定要真人點。
+**Google 登入流程無法自動化**（會被 Google 阻擋，亦違反服務條款），此步驟須由真人手動完成。
 
-### 4.5 push 前必跑
+### 提交前檢查
 
 ```bash
 pnpm lint
 pnpm exec tsc --noEmit
 ```
 
-兩個都綠才 push。沒有別的魔法，就這兩行。
+兩項檢查皆通過後才可 push。
 
-### 4.6 驗收清單
+### 驗收清單
 
-五項全過才算串好。**都不需要跑 portal**，兩個終端機就測得完。
+以下五項需全數通過，皆可在兩個終端機環境下完成測試，不需啟動 portal。
 
 - [ ] **登得進**：開 `https://lost.lvh.me:3006` → 被導去 auth → Google 登入 → 回到你的頁面，看到自己的名字。
 - [ ] **cookie 是 host-only**：DevTools → Application → Cookies → `lost.lvh.me`：有一顆 `tpass_token`，
       而且 **Domain 欄是 `lost.lvh.me`——前面沒有那個點**。有點（`.lvh.me`）就是你設了 `Domain`，
-      通行證會外洩給其他服務，回去看 §3 紅線。
+      通行證會外洩給其他服務，回去看〈安全規範〉。
 - [ ] **登得出**：按登出 → cookie 消失。
 - [ ] **SSO 真的有效**：在 DevTools 只刪掉 `lost.lvh.me` 的 `tpass_token`（**留著 `auth.lvh.me` 的
       `tpass_auth_session`**）→ 重新整理 → 你會被導去 auth，然後 **auth 不會叫你再點一次 Google，
       直接把你送回來**。這就是「登入一次、全生態通行」。
-- [ ] **★ 隔離測試（最重要，能抓出最致命的 bug）**：在瀏覽器直接開這個網址——
+- [ ] **隔離測試（最關鍵，可揪出最嚴重的錯誤）**：在瀏覽器直接開這個網址——
       注意 `service` 是**別人**（`portal`），但 `redirect_uri` 指向**你的** callback：
 
       https://auth.lvh.me:3000/api/auth/authorize?service=portal&redirect_uri=https://lost.lvh.me:3006/api/auth/callback&next=/
 
       auth 會簽一張 `aud=tpass:portal` 的票 POST 給你。**你的 callback 必須回 401。**
-      如果它讓你登入了，代表你沒驗 `audience`——**別人服務的票在你家能用**，隔離全毀。
-      回去看 §3.2 鐵則 3。
+      如果它讓你登入了，代表你沒驗 `audience`——別人服務的票在你家能用，隔離全毀。
+      回去看〈整合登入〉「驗章核心」鐵則 3。
 
----
+## 部署
 
-## 5. 上線
+主機上的部署帳號不具 root 權限。標記 **[root]** 的步驟需交由維運部員執行。
 
-主機上**部署帳號沒有 root**。標記 **[root]** 的步驟你做不了，要把指令交給維運部員。
-
-| # | 誰做 | 做什麼 |
+| # | 執行者 | 內容 |
 | --- | --- | --- |
 | 1 | 你 | Cloudflare DNS：`lost.tschoolsu.org` A record → 主機 IP，**先開灰雲（DNS only）** |
 | 2 | **[root]** | nginx server block（反向代理到 `127.0.0.1:3006`）+ `certbot` 簽 TLS 憑證 |
@@ -532,17 +808,16 @@ pnpm exec tsc --noEmit
 | 5 | 維運 | ops repo：`services.json` 的 `lost` 把 `deployed` 改成 `true` → merge main |
 | 6 | 你 | 主機上 `git clone` 你的 repo 到 `~/tpass/tpass-lost`，寫 `.env.local`（正式網域、**沒有 port**） |
 | 7 | 你 | 主機 `~/tpass/tpass-auth/.env.local`：`AUTH_SERVICE_IDS` 加上 `lost` |
-| 8 | 你 | 主機 `~/tpass/tpass-portal/.env.local`：加 `LOST_URL=https://lost.tschoolsu.org`（§1.3 的第 ④ 步） |
-| 9 | 你 | 部署 `auth` → `portal` → `lost`（見 §5.1） |
-| 10 | 你 | 瀏覽器真人走一次登入，跑一遍 §4.6 的驗收清單（把 `lvh.me:3006` 換成正式網域） |
+| 8 | 你 | 主機 `~/tpass/tpass-portal/.env.local`：加 `LOST_URL=https://lost.tschoolsu.org`（〈事前準備〉「門戶入口卡片」第 ④ 步） |
+| 9 | 你 | 部署 `auth` → `portal` → `lost`（見〈部署〉「部署指令」） |
+| 10 | 你 | 瀏覽器真人走一次登入，跑一遍〈本機開發〉「驗收清單」（把 `lvh.me:3006` 換成正式網域） |
 
-> **灰雲 / 橘雲為什麼要來回切？** Let's Encrypt 簽憑證時的驗證請求必須**直接打到主機**，Cloudflare 橘雲代理會把它接走，導致簽不到憑證。所以：先灰雲 → 簽好 → 再切橘雲（橘雲能隱藏源站 IP、擋攻擊、快取）。
+> [!NOTE]
+> **灰雲 / 橘雲為何需要來回切換？** Let's Encrypt 簽發憑證時的驗證請求須直接抵達主機，Cloudflare 橘雲代理會攔截該請求，導致憑證簽發失敗。因此流程為：先灰雲 → 簽發完成 → 再切橘雲（橘雲可隱藏源站 IP、抵禦攻擊、提供快取）。
 
-### 5.1 部署（ssh 進主機，跑四行）
+### 部署指令
 
-主機上**已經有一支 `deploy.sh`**，你不用自己記那串。它對指定服務會做：
-**env 必填檢查**（缺 key 在 build 前就擋下）→ `git pull` → 需要時 `pnpm install --frozen-lockfile` →
-`prisma generate` → `pnpm build` → 套 DB schema → `pm2` zero-downtime reload → **健康檢查**（打你的 port，30 秒內沒有健康回應就算失敗）。
+主機上已備有 `deploy.sh`，無需另行記憶完整指令。針對指定服務，此腳本會依序執行：**env 必填檢查**（缺 key 於 build 前即擋下）→ `git pull` → 視需要 `pnpm install --frozen-lockfile` → `prisma generate` → `pnpm build` → 套用 DB schema → `pm2` zero-downtime reload → **健康檢查**（打服務所在 port，30 秒內未收到健康回應即視為失敗）。
 
 ```bash
 ssh <帳號>@<主機>                     # 位址與帳號跟維運要。★ 絕不寫進任何 repo / commit / PR
@@ -554,97 +829,90 @@ cd ~/tpass && git pull --ff-only      # 先更新 ops（services.json、deploy.s
 ./deploy/deploy.sh lost               # ③ 你的服務首次啟動
 ```
 
-**順序有意義**，別跳過前兩個。
+執行順序具有意義，前兩項不可省略。
 
-看狀態與 log（都在主機上）：
+查看狀態與 log（皆於主機上執行）：
 
 ```bash
 pm2 status                 # 所有服務活著沒
 pm2 logs lost --lines 100  # 你的服務的錯誤
 ```
 
-**Rollback**：在你的 repo `git revert` 出一個新 commit → merge 進 main → 再跑一次 `./deploy/deploy.sh lost`。
-不需要特殊機制。**build 失敗時舊版程序完全不受影響，不會停機**——deploy.sh 是先 build 成功才 reload 的。
+**Rollback**：於 repo 執行 `git revert` 產生新 commit → merge 進 main → 重新執行 `./deploy/deploy.sh lost`，不需特殊機制。build 失敗時舊版程序不受影響、不會停機——`deploy.sh` 採先 build 成功才 reload 的策略。
 
-> 維運部員手上有個本機遙控器（`tpass deploy lost`），做的就是上面這四行 ssh 指令。
-> 你不需要它——效果一模一樣。
+> [!NOTE]
+> 維運部員手上有一支本機遙控器（`tpass deploy lost`），其效果等同於上述四行 ssh 指令，非必要工具。
 
----
-
-## 6. 卡住了？對照這張表
+## 疑難排解
 
 | 症狀 | 原因 / 解法 |
 | --- | --- |
-| 登入完**馬上被踢回登入頁**（本機） | 九成是 dev 指令少了 `NODE_TLS_REJECT_UNAUTHORIZED=0`，後端抓不到 auth 的 JWKS 公鑰（§4.3）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
-| 登入完**馬上被踢回登入頁**（主機） | 這裡跟 TLS 無關，**絕不要**在主機加 `NODE_TLS_REJECT_UNAUTHORIZED`。查 `iss` / `aud` 有沒有對上（往下兩列） |
-| 瀏覽器說憑證不安全 | 憑證沒涵蓋你的子網域。重跑 §4.1 的 `mkcert`，把 `lost.lvh.me` 加進去；`mkcert -install` 也要跑過 |
-| authorize 回 `400 Unknown service` | 你的 id 沒進 auth 的 `AUTH_SERVICE_IDS`，加了要**重啟 auth** |
-| authorize 回 `400 Invalid redirect_uri` | `redirect_uri` 要是完整網址，且網域要在生態系底下（防 Open Redirect） |
-| authorize 回 `400 Invalid next` | `next` 必須是站內路徑（`/` 開頭、且不是 `//` 開頭） |
-| 一直跳 `/?error=domain` | 你登入的 Google 帳號不是學校網域的信箱 |
-| callback 收到 token 但驗不過（401） | `aud` 對不上。你驗的是 `tpass:<id>`？這個 id 跟 authorize 帶的 `service` 一樣嗎？ |
-| 驗章一直失敗，但 token 看起來很正常 | `iss` 字串差一個 port 或結尾斜線也會失敗。跟 auth 的 `JWT_ISSUER` 逐字比對 |
-| 前端 JS 讀不到 cookie | **這是正常的**（`HttpOnly`）。身分只在後端拿；前端要的話自己開一個 `/api/me` |
-| 登入幾小時後失效 | 正常，token 壽命 8 小時 |
-| 服務一啟動就報「缺少必填環境變數」 | 對照你 `src/config/lost.ts` 的 `REQUIRED` 陣列補 `.env.local`（那個陣列就是必填清單的真相） |
-| 部署被擋，說 env 缺 key | 同上，但要補的是**主機上**的 `.env.local`。deploy.sh 在 build 前就先擋，這是故意的 |
-| 上線了，但 **portal 首頁看不到你的卡片** | §1.3 的四步沒做完——最常漏的是第 ④ 步（主機 portal 的 `.env.local` 加 `LOST_URL`）+ 重新部署 portal |
-| 部署 portal 時報 `缺少必填變數：LOST_URL` | 你把 `LOST_URL` 加進 `REQUIRED` 了，但主機 portal 的 `.env.local` 沒加。§1.3 第 ④ 步 |
+| 登入完**馬上被踢回登入頁**（本機） | 多半是 dev 指令缺少 `NODE_TLS_REJECT_UNAUTHORIZED=0`，導致後端抓不到 auth 的 JWKS 公鑰（見〈本機開發〉「設定 dev 指令」）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
+| 登入完**馬上被踢回登入頁**（主機） | 與 TLS 無關，**絕不要**在主機加 `NODE_TLS_REJECT_UNAUTHORIZED`。查 `iss` / `aud` 是否對應（見下兩列） |
+| 瀏覽器說憑證不安全 | 憑證未涵蓋該子網域。重跑〈本機開發〉「建立本機憑證」的 `mkcert`，把 `lost.lvh.me` 加進去；`mkcert -install` 也需重新執行 |
+| authorize 回 `400 Unknown service` | 該 id 未加入 auth 的 `AUTH_SERVICE_IDS`，加入後須重啟 auth |
+| authorize 回 `400 Invalid redirect_uri` | `redirect_uri` 須為完整網址，且網域須在生態系範圍內（防 Open Redirect） |
+| authorize 回 `400 Invalid next` | `next` 必須是站內路徑（以 `/` 開頭，且不以 `//` 開頭） |
+| 一直跳 `/?error=domain` | 登入使用的 Google 帳號非學校網域信箱 |
+| callback 收到 token 但驗不過（401） | `aud` 不相符。確認驗證的是 `tpass:<id>`，且該 id 與 authorize 帶的 `service` 一致 |
+| 驗章一直失敗，但 token 看起來很正常 | `iss` 字串差一個 port 或結尾斜線也會導致失敗，須與 auth 的 `JWT_ISSUER` 逐字比對 |
+| 前端 JS 讀不到 cookie | 此為正常行為（`HttpOnly`）。身分僅在後端可取得；前端如有需求，應另開一個 `/api/me` |
+| 登入一段時間後失效 | 正常現象，per-service token 壽命＝auth 端 `JWT_TTL_SECONDS`（建議 45 分鐘）；重新走一次登入會自動換到新票 |
+| 服務一啟動就報「缺少必填環境變數」 | 對照 `src/config/lost.ts` 的 `REQUIRED` 陣列補齊 `.env.local`（該陣列即必填清單的唯一真相） |
+| 部署被擋，說 env 缺 key | 同上，但須補齊的是**主機上**的 `.env.local`。`deploy.sh` 於 build 前即擋下，此為刻意設計 |
+| 上線了，但 **portal 首頁看不到你的卡片** | 〈事前準備〉「門戶入口卡片」的四步未完成——最常遺漏第 ④ 步（主機 portal 的 `.env.local` 加 `LOST_URL`）並重新部署 portal |
+| 部署 portal 時報 `缺少必填變數：LOST_URL` | `LOST_URL` 已加入 `REQUIRED`，但主機 portal 的 `.env.local` 未同步加入。見〈事前準備〉「門戶入口卡片」第 ④ 步 |
 
----
+## 安全規範
 
-## 7. 紅線（違反就是 bug，code review 會被打回）
+- 不可在**前端**驗章，不可將 token 存入 `localStorage`。
+- 不可移除 `algorithms: ["EdDSA"]`（移除後任何人皆可偽造身分）。
+- 不可將 cookie 設為 `Domain=.tschoolsu.org`（通行證將外洩至其他服務，隔離機制全毀）。
+- 權限判斷一律讀 JWT 的 `permissions` claim（`perm.role`、`perm.read`）；`groups` 已於 2026-07-27 全面移除，token 裡不會再有這個欄位。名單維護於**中央**（auth 的 `/admin` panel），服務**不應**自行維護 allowlist 或 DB 名單。細粒度授權（可讀取哪筆資料）仍應於服務本地實作。
+- 不可 import 或複製 auth 的私鑰、`arctic`、Google OAuth callback。服務**只需要公鑰**。
+- 不可將網域 / issuer / audience 寫死於程式碼中，一律透過 env 讀取。
+- 不可嘗試自動化 Google 登入流程，測試時須由真人手動操作。
+- 每個 server action / route handler 內部都須重新檢查登入狀態，不能僅依賴 layout。
+- 對外的 webhook / callback 網址須 pin 官方網域（例如僅允許 `discord.com`），不應讓管理員填入任意 URL。
 
-- ❌ 不要在**前端**驗章、不要把 token 塞 `localStorage`。
-- ❌ 不要拿掉 `algorithms: ["EdDSA"]`。（等於開放任何人偽造身分）
-- ❌ 不要把 cookie 設 `Domain=.tschoolsu.org`。（通行證會外洩到其他服務，隔離全毀）
-- ✅ 管理員權限就讀 JWT 的 `groups`（`groups.includes("admin")`，`super-admin` 隱含 `admin`）。名單維護在**中央**（auth 的 `AUTH_GROUPS` 設定），你的服務**不要**自維護 allowlist / DB 名單。細粒度授權（能讀哪筆資料）仍在你服務本地做。
-- ❌ 不要 import 或複製 auth 的私鑰、`arctic`、Google OAuth callback。**你只需要公鑰。**
-- ❌ 不要把網域 / issuer / audience 寫死在程式裡——全部走 env。
-- ❌ 不要嘗試自動化 Google 登入。要測就真人點。
-- ✅ 每個 server action / route handler 內部都要重新檢查登入，不能只靠 layout。
-- ✅ 對外的 webhook / callback 網址要 pin 官方網域（例如只允許 `discord.com`），不要讓管理員填任意 URL。
+## 參考：JWT Payload
 
----
-
-## 附錄 A：JWT payload 有哪些欄位
-
-你的 callback 收到的 token，解開後長這樣：
+callback 收到的 token，解開後結構如下：
 
 ```json
 {
   "sub": "104857600293847561029",
   "email": "b11302042@tschool.tp.edu.tw",
   "name": "林大明",
-  "groups": ["admin"],
+  "permissions": {
+    "lost": { "read": true, "role": "admin" }
+  },
   "iss": "https://auth.lvh.me:3000",
   "aud": "tpass:lost",
   "iat": 1750000000,
-  "exp": 1750028800
+  "exp": 1750002700
 }
 ```
 
 | 欄位 | 型別 | 意義 |
 | --- | --- | --- |
-| `sub` | `string` | 使用者唯一識別碼（來自 Google，跨服務一致，**可以當你 DB 的主鍵**） |
+| `sub` | `string` | 使用者唯一識別碼（來自 Google，跨服務一致，可作為 DB 主鍵） |
 | `email` | `string` | 學校信箱（已通過驗證與網域白名單） |
 | `name` | `string` | 顯示名稱 |
-| `groups` | `string[]` | **授權章**：此人在本服務屬於哪些群組（`["admin"]` 等），非管理員為 `[]`。授權只讀這個；名單維護在中央（auth `AUTH_GROUPS`） |
+| `permissions` | `Record<string, PermissionEntry>` | **權限本體**。一般服務 token 只含自己一把 key。授權判斷一律讀這個，名單維護於中央 auth 的 `/admin` panel，不再是環境變數 |
 | `iss` | `string` | 簽發者，驗章時必須檢查 |
 | `aud` | `string` | 受眾，必為 `tpass:<你的服務id>`，驗章時必須檢查 |
-| `iat` / `exp` | `number` | 簽發 / 到期時間（Unix 秒）。token 壽命 8 小時 |
+| `iat` / `exp` | `number` | 簽發 / 到期時間（Unix 秒）。per-service token 壽命＝auth 端 `JWT_TTL_SECONDS`（建議 45 分鐘） |
 
 其他規格：
 
 - **簽章演算法**：`EdDSA`（Ed25519）。驗章時必須鎖死。
-- **公鑰來源（JWKS）**：`GET <auth 網址>/.well-known/jwks.json`，可快取一小時。用會「依 `kid` 自動選鑰」的函式庫（`jose` 的 `createRemoteJWKSet`），不要自己抓第一把硬用——之後金鑰輪替你才不會壞掉。
-- **token 交付方式**：auth 用自動送出的 `<form method="post">` 把 `token` 和 `next` POST 給你，所以 token 不會出現在網址、歷史紀錄、Referer 裡。
+- **公鑰來源（JWKS）**：`GET <auth 網址>/.well-known/jwks.json`，可快取一小時。應使用能依 `kid` 自動選鑰的函式庫（`jose` 的 `createRemoteJWKSet`），不應自行擷取單一把公鑰硬編碼使用，否則金鑰輪替時將導致驗證失效。
+- **token 交付方式**：auth 使用自動送出的 `<form method="post">` 將 `token` 與 `next` POST 至指定服務，因此 token 不會出現於網址、瀏覽器歷史紀錄或 Referer 中。
 
----
+## 參考：services.json 欄位
 
-## 附錄 B：`services.json` 欄位定義
-
-頂層的 `services.json` 是**服務清單的唯一真相**——所有工具（CLI、pm2 設定、部署腳本）都從它讀。**不要在別的地方另外硬編碼服務清單、port、目錄名。**
+頂層的 `services.json` 是服務清單的唯一真相，所有工具（CLI、pm2 設定、部署腳本）皆從此讀取。不應在其他位置另行硬編碼服務清單、port 或目錄名稱。
 
 ```jsonc
 {

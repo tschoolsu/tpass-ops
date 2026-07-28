@@ -73,7 +73,7 @@
 
 | id | 服務 | 目錄 | 本機網址 | 正式網址 | port | DB |
 | --- | --- | --- | --- | --- | --- | --- |
-| `auth` | SSO 發證 | `tpass-auth/` | `auth.lvh.me:3000` | `auth.tschoolsu.org` | 3000 | — |
+| `auth` | SSO 發證 | `tpass-auth/` | `auth.lvh.me:3000` | `auth.tschoolsu.org` | 3000 | `t_auth` |
 | `portal` | 門戶大廳 | `tpass-portal/` | `portal.lvh.me:3001` | `portal.tschoolsu.org` | 3001 | — |
 | `form` | T-Form 問卷 | `tpass-form/` | `form.lvh.me:3002` | `form.tschoolsu.org` | 3002 | `t_form` |
 | `msg` | T-Msg 跨屆代傳 | `tpass-cross_grade_messages/` | `msg.lvh.me:3003` | `msg.tschoolsu.org` | 3003 | `t_msg` |
@@ -107,6 +107,10 @@ scripts/tpass setup
 ```
 
 它會做：信任 mkcert 根憑證 → 產出涵蓋所有服務子網域的憑證到 `certs/` → 所有服務 `pnpm install` → 印出 EdDSA 金鑰對 → 對有 DB 的服務跑 `tpass db setup`（建 role + database、補 `DATABASE_URL`、prisma generate + migrate）。
+
+> `auth` 現在也有 DB（`t_auth`，Prisma：`Subject`/`Grant`/`AuditLog`——存權限真相，供 `/admin`
+> panel 與簽章路徑查詢）。跟其他服務走同一套：`tpass setup` 或單獨 `tpass db setup auth` 都會
+> 建 role/db、跑 migrate，本機不需要額外步驟。
 
 **接著手動做一次**：每個 repo `cp .env.example .env.local` 並填入真值（金鑰貼進 auth 的那份）。
 
@@ -234,8 +238,9 @@ build 失敗時舊版行程**不受影響**（reload 只在 build 成功之後�
 127.0.0.1:3000  127.0.0.1:3001  …:3002        …:3003         …:3004
  (pm2: auth)     (pm2: portal)   (pm2: form)   (pm2: msg)    (pm2: appeals)
  next start      next start      next start    next start    next start
-                                      │             │              │
-                                 PostgreSQL（每服務專屬 user + db：t_form / t_msg / t_appeals）
+     │                               │             │              │
+     └───────────────────────┬───────┴─────────────┴──────────────┘
+                         PostgreSQL（每服務專屬 user + db：t_auth / t_form / t_msg / t_appeals）
 ```
 
 - **對外入口是 nginx**（不是 Caddy）。vhost 在 `/etc/nginx/sites-available/tschool-sso`、憑證在 `/etc/letsencrypt/`——都是 root 擁有，部署帳號無 sudo。
@@ -314,6 +319,7 @@ scripts/tpass logs form -f     # 跟隨
 | 部署後 502 | `tpass logs <svc>` 看 pm2 有沒有活；或 nginx 反代的 port 與 `services.json` 不一致 |
 | 切橘雲後 5xx / 憑證錯 | 憑證還沒簽好就切橘雲了——回灰雲、簽好、再切 |
 | Postgres 沒起來 | `brew services start postgresql@17` |
+| `tpass db setup <svc>` 卡在 `prisma migrate dev`，說沒權限建資料庫 | 已知坑：`db.mjs` 建 role 時只給 `LOGIN`，沒給 `CREATEDB`。本機 `migrate dev` 會另外開一個 shadow database 來算 migration diff，需要這個權限；正式站部署用的是 `migrate deploy`，**不建 shadow db，不需要 `CREATEDB`**，所以主機不受影響。本機解法：`psql -d postgres -c "ALTER ROLE t_<id> CREATEDB"` 補一次，冪等，之後 `tpass db setup <svc>` 就會過 |
 | 憑證過期 / 加了新子網域 | 重跑 `scripts/tpass setup`（會重生憑證） |
 | 主機重開機後服務沒起來 | `scripts/ssh.sh 'pm2 resurrect'`（正常情況 systemd 會自動做） |
 | pm2 裡根本沒這個 app | `scripts/ssh.sh 'cd ~/tpass && pm2 startOrReload deploy/ecosystem.config.js --only <id> && pm2 save'` |

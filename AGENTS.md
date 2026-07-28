@@ -22,7 +22,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 
 | 目錄 | 角色 | 網域（本機） | 一句話 |
 | --- | --- | --- | --- |
-| `tpass-auth/` | **中央 SSO 發證端** | `https://auth.lvh.me:3000` | Google OAuth → 簽 per-service EdDSA JWT → 公開 JWKS。**唯一持有私鑰者。** |
+| `tpass-auth/` | **中央 SSO 發證端** | `https://auth.lvh.me:3000` | Google OAuth → 簽 per-service EdDSA JWT → 公開 JWKS。**唯一持有私鑰者**；同時是權限真相（Postgres：Subject/Grant/AuditLog）與其管理面板 `/admin` 所在地。 |
 | `tpass-portal/` | **門戶大廳（消費端 + 參考實作）** | `https://portal.lvh.me:3001` | 發射台；其他子模組團隊**照抄它的串接寫法**（lib + callback/logout route）。 |
 | `tpass-form/` | 問卷系統（T-Form） | `https://form.lvh.me:3002` | 問卷建構/填寫/匯出，PostgreSQL+Prisma。 |
 | `tpass-cross_grade_messages/` | 跨屆代傳（T-Msg） | `https://msg.lvh.me:3003` | 訊息廣播到 Google Chat webhook，PostgreSQL+Prisma。 |
@@ -56,6 +56,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | **服務清單 / port / DB 策略** | `services.json`（工具讀）；欄位定義見 `docs/NEW-SERVICE.md` 附錄 B | 🟢 權威 |
 | **新增服務** | `scripts/tpass new` + `docs/NEW-SERVICE.md` | 🟢 權威 |
 | **安全審查發現與狀態** | `docs/SECURITY-REVIEW.md` | 🟢 權威 |
+| **權限怎麼管**（role/restriction、ban/warning、panel 操作） | auth 的 `/admin` panel（實際管理介面）＋ `tpass-auth/INTEGRATION.md` §3（claim 契約與生效時間） | 🟢 權威 |
 | **UI 風格 / design system** | `tpass-portal/docs/design.md` | 🟢 權威 |
 | **設定怎麼讀**（全 env 驅動） | 各 repo `src/config/*.ts`（REQUIRED 陣列＝env 必填真相） | 🟢 權威 |
 | **產品願景 / 背景需求** | `tpass-portal/docs/PRD.md` | 🟢 v1.1.0 已對齊實作 |
@@ -111,7 +112,10 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
 - ❌ 消費端不要 import / 複製 auth 的私鑰、`arctic`、OAuth callback。**只需要公鑰。**
 - ❌ 不要在前端驗章、不要把 token 塞 `localStorage`、不要關掉 `algorithms: ['EdDSA']` 鎖定。
 - ❌ 不要把網域 / issuer / audience / 服務清單寫死——讀 `config/*`（env）與 `services.json`。
-- ❌ 不要拿 JWT 的 `role` 做權限（placeholder，恆為 `student`）——用各服務的 allowlist。
+- ❌ 權限判斷一律讀 JWT 的 `permissions` claim（`perm.role`／`perm.read`，見
+  `tpass-auth/INTEGRATION.md` §3）；`groups` 已於 2026-07-27 全面移除（不是 deprecated，是
+  不存在），token 裡不會再有這個欄位，別再寫或讀 `groups.includes(...)`；
+  各服務**不自維護 admin allowlist**——名單在 auth 的 `/admin` panel 管，不是 env、不是 DB。
 - ❌ 不要嘗試自動化 Google 登入（會被擋、違反條款）。要真人登入時**停下來請使用者手動完成**。
 - ❌ 消費端 cookie 不要設 `Domain=.<根網域>`（那是 v1，正在退場）。
 - ✅ UI 一律 light-only Neobrutalism + OKLCH，照 `design.md`。

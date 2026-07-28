@@ -10,7 +10,7 @@
       "dir": "tpass-auth",
       "subdomain": "auth",
       "port": 3000,
-      "db": null,
+      "db": { "name": "t_auth", "user": "t_auth", "strategy": "migrate" },
       "enabled": true,
       "deployed": true
     },
@@ -64,6 +64,16 @@
       "enabled": false,
       "deployed": false,
       "note": "2026-07-05 封存；port 由 3004 移至 3005 解決與 appeals 撞車"
+    },
+    {
+      "id": "vote",
+      "name": "T-Vote 選舉",
+      "dir": "tpass-vote",
+      "subdomain": "vote",
+      "port": 3006,
+      "db": { "name": "t_vote", "user": "t_vote", "strategy": "migrate" },
+      "enabled": true,
+      "deployed": false
     }
   ]
 }
