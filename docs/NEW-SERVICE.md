@@ -640,10 +640,22 @@ https://auth.tschoolsu.org/admin        # 正式站
 | 幫某人在**你的服務**設 role（admin/moderator）或下 restriction（warning/ban + 原因 + 到期） | `/admin/people/[email]` — 每個服務一列 |
 | 只看你服務的名單 | `/admin/services/<你的服務id>` |
 | 稽核紀錄（誰在什麼時候改了誰） | `/admin/audit` |
+| 刪除人員（連同他在**所有**服務的權限紀錄，僅 admin） | `/admin/people/[email]` — 頁面底部「危險操作」 |
 
 panel 本身的存取權：`AUTH_SUPERADMINS`（生態總管，逃生門）或在 auth 這個服務本身被設為
 admin/moderator 的人。**moderator 可以下 warning/ban，但不能改 role**；不能 ban 或降級
 superadmin；不能調降自己在 auth 的 role。ban 需二次確認且必填原因。
+
+要讓別人也能管權限，就在 `/admin/people/[email]` 把他在 **`auth` 那一列**設成 admin
+（可改所有人的角色與管制，含再指派管理員）或 moderator（只能改管制）——panel 的權限就是
+這套模型自己，沒有另一份名單。
+
+> [!WARNING]
+> **刪除人員是「清空紀錄」，不是「封鎖」。** 刪掉的人下次登入會被重新建立成一筆乾淨紀錄，
+> 他身上所有服務的 warning/ban 一併消失；若他當下有尚未過期的 auth 登入態，刪除會讓那顆
+> session 立刻復活（ban 寫的 `sessionsValidFrom` 隨 Subject 一起沒了）。要擋人請用 ban。
+> 刪除只有 admin 能做，且不能刪自己、不能刪 superadmin；刪除內容會留在 `/admin/audit`
+> （`subject.delete`，含被刪掉的完整 grant 清單）。
 
 > [!IMPORTANT]
 > 存檔後**不會**立即讓對方的舊票失效（除非是 ban——ban 會讓對方的 auth 登入態立刻作廢）。

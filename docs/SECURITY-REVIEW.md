@@ -57,9 +57,11 @@ JWT 改帶 `permissions` claim（role 三級 + restriction 兩種管制）。以
 | P1 | — | panel 守門模型 | `/admin` 本身的存取權就是這套權限模型自己（serviceId=`auth` 的 Grant，`role∈{admin,moderator}`）+ `AUTH_SUPERADMINS`（env 逃生門，不進 DB，DB 掛掉照樣有效） | 全走 server actions，不開 REST 管理端點（沒有可被繞過 layout 直打的 API 面）；每個 server action 各自呼叫 `requireAuthAdmin()` / `requireAuthModerator()`，不只靠 layout 擋 | ✅ |
 | P2 | — | moderator 不可改 role | moderator 能下 warning/ban（含填 reason/到期），但**不能**把任何人（含自己）的 `role` 改成 admin/moderator/default——防止「有管制權限的人」自我提權 | server action 層檢查，非只藏 UI 按鈕 | ✅ |
 | P3 | — | superadmin 保護 | 不能 ban／降級 `AUTH_SUPERADMINS` 名單內的人；admin 不能調降自己在 auth 的 role（防手滑把自己鎖在 panel 外、DB 又剛好沒有其他 admin） | server action 層檢查 | ✅ |
-| P4 | — | audit log | 每次權限變更（role / restriction）寫一筆 `AuditLog`（at / actorEmail / targetEmail / serviceId / action / before / after）——「誰把我 ban 的」的追溯需求，一次 insert 是最便宜的保險 | `/admin/audit` 可查閱、可過濾 | ✅ |
+| P4 | — | audit log | 每次權限變更（role / restriction / 刪除人員）寫一筆 `AuditLog`（at / actorEmail / targetEmail / serviceId / action / before / after）——「誰把我 ban 的」的追溯需求，一次 insert 是最便宜的保險 | `/admin/audit` 可查閱、可過濾 | ✅ |
 | P5 | LOW | fail-open 降級 | 簽章路徑查權限（`permissionsFor` / `overviewFor`）若 DB 查詢失敗，降級為 `{read:true, role:"default"}`，大聲 log 但不擋登入；一般消費端解析 claim 時同樣的安全預設值（缺 claim / 缺 serviceId → `read:true, role:"default"`） | 刻意選擇可用性優先於懲罰漏網——全鎖等於連救火的人都進不去；`AUTH_SUPERADMINS` 走 env、不受這個降級影響，逃生門仍然有效 | 📝 接受風險 |
 | P6 | — | reason 不進 URL | ban 原因屬敏感資訊（可能含個資 / 糾紛細節）；`authorize` 導向 `/denied?service=<id>` 只帶 service id，reason 由 `/denied` 頁憑使用者自己的 auth session 重查 DB 取得，不落 URL / Referer / 瀏覽器歷史 / 存取 log | 已實作 | ✅ |
+
+| P7 | LOW | 刪除人員（2026-07-28 補） | panel 可刪 Subject（Grant 隨 `onDelete: Cascade` 一起消失）。風險：**刪除等於解除該人所有服務的管制**，且 ban 寫的 `Subject.sessionsValidFrom` 一併消失——他手上未過期的 auth 登入態（最長 `AUTH_SESSION_TTL_SECONDS`，預設 12h）會立刻復活，比解 ban 還快生效 | 僅 admin（moderator 連 role 都不能改，更不該能整筆抹掉）；不可刪自己、不可刪 `AUTH_SUPERADMINS`；刪前把完整 grant 清單快照進 `AuditLog`（`action: subject.delete`，`before` 存清單）；UI 在危險區塊與確認框各警告一次「刪除不是封鎖，要擋人請用 ban」 | 📝 接受風險 |
 
 對照組：這次上線同時把 L4（TTL / 撤銷機制）的風險面縮小，見上方發現清單 L4 更新。
 
