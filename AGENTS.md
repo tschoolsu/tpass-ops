@@ -144,5 +144,6 @@ scripts/tpass ui       # 不想打字：本機圖形儀表板
 
 - 部署：`scripts/tpass deploy [svc|all]`；看狀態 `tpass status`；看 log `tpass logs <svc>`。
 - 進主機：`scripts/ssh.sh`（互動）或 `scripts/ssh.sh '<cmd>'`。
-- **部署帳號沒有 root**。要動 nginx / 建 DB 的操作，停下來把指令交給維運部員
+- **agent 拿不到 root**。維運者本人在主機上有 sudo（要打自己的登入密碼），但 agent 無從代打——
+  要動 nginx / 建 PostgreSQL role/db 的指令，**印出來交給人在主機貼一次**，不要嘗試代跑
   （`tpass new` 會印好）。主機細節見 `docs/ONBOARDING.md §5`。

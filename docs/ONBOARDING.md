@@ -55,7 +55,8 @@
 
 ### 角色分工
 
-主機上的**部署帳號沒有 root**。
+主機上的**部署帳號給部員用時視同沒有 root**（維運者本人有 sudo，需打登入密碼；agent 代跑不了，
+需要 root 的指令一律印出來交給人在主機貼）。
 
 | 角色 | 能做 | 不能做 |
 | --- | --- | --- |
@@ -243,7 +244,7 @@ build 失敗時舊版行程**不受影響**（reload 只在 build 成功之後�
                          PostgreSQL（每服務專屬 user + db：t_auth / t_form / t_msg / t_appeals）
 ```
 
-- **對外入口是 nginx**（不是 Caddy）。vhost 在 `/etc/nginx/sites-available/tschool-sso`、憑證在 `/etc/letsencrypt/`——都是 root 擁有，部署帳號無 sudo。
+- **對外入口是 nginx**（不是 Caddy）。vhost 在 `/etc/nginx/sites-available/tschool-sso`、憑證在 `/etc/letsencrypt/`——都是 root 擁有，改動要維運者本人 sudo。
 - **TLS 在 nginx / Cloudflare 終結**；pm2 跑的 Next.js 是純 HTTP，只綁 `127.0.0.1`。
 - app 的 `Secure` cookie 由 env 裡的網址是不是 `https://` 推導出來。
 
