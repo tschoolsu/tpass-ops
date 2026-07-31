@@ -701,7 +701,7 @@ mkcert -cert-file cert.pem -key-file key.pem \
 此步驟僅需執行一次。**auth 與註冊表必須 clone 在同一層**——auth 會讀 `../tpass-registry/services.json` 決定可以為哪些服務發證：
 
 ```bash
-git clone git@github.com:YC815/tpass-auth.git
+git clone https://github.com/YC815/tpass-auth.git
 git clone https://github.com/YC815/tpass-registry.git   # ★ 與 tpass-auth 同一層
 cd tpass-auth
 pnpm install
