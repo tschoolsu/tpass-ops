@@ -15,8 +15,6 @@
 - [運作原理](#運作原理)
 - [事前準備](#事前準備)
   - [服務註冊](#服務註冊)
-  - [註冊服務 id](#註冊服務-id)
-  - [門戶入口卡片](#門戶入口卡片)
 - [專案結構](#專案結構)
 - [整合登入](#整合登入)
   - [設定檔](#設定檔)
@@ -52,14 +50,14 @@
 
 T-Pass 是 TSchool 平台的單一登入機制。師生以學校 Google 帳號登入一次，即可通行所有子服務。其架構遵循一項核心原則：**auth 負責發證，各服務負責驗證；服務不持有、也不需要任何私鑰。**
 
-本指南是自給自足的：所有程式碼、設定、指令皆完整寫在文件中，依序操作即可完成串接。新服務只需要自己的 repo——不需要存取 ops repo，也不需要任何自製工具，文件中使用的皆為原生 `pnpm` 與 `ssh` 指令。
+本指南是自給自足的：所有程式碼、設定、指令皆完整寫在文件中，依序操作即可完成串接。新服務只需要自己的 repo，加上對公開的 `YC815/tpass-registry` 開一個 PR——不需要存取 ops repo，也不需要任何自製工具，文件中使用的皆為原生 `git` / `pnpm` / `ssh` 指令。
 
 > [!IMPORTANT]
 > 套件管理一律使用 pnpm，鎖檔為 `pnpm-lock.yaml`。混用 npm 或 yarn 會產生第二份鎖檔，導致部署失敗。
 
 另有兩份相依文件，適用於不同階段：
 
-- 《TSchool 開發與維運手冊》——主機拓樸、nginx、維運用的 `tpass` 遙控器。
+- 《TSchool 開發與維運手冊》——主機拓樸、nginx、維運層的工具。
 - 《T-Pass Design System》——UI 風格規範，本文件不重複其內容，設計畫面時請參閱該份文件。
 
 ## 運作原理
@@ -95,11 +93,10 @@ T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負
 
 ## 事前準備
 
-新服務不需要 ops repo，但有三項資源僅維運成員持有，需先取得後才能開始：
+新服務不需要 ops repo，但有兩項資源僅維運成員持有，需先取得後才能開始：
 
 | 項目 | 用途 | 取得時機 |
 | --- | --- | --- |
-| **服務 id + port** | 服務的身分識別與門牌（例：`lost` / `3006`）。由維運登記進 `services.json` | 開始前 |
 | **dev 密鑰包** | 一組僅限本機使用的 Google OAuth client（id + secret），用於本機執行 auth | 開始前（〈本機開發〉會用到） |
 | **主機 ssh 帳號** | 上線時使用。**絕不寫入任何 repo、commit、PR** | 上線時（見〈部署〉） |
 
@@ -108,54 +105,60 @@ T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負
 
 服務 id 是服務的身分識別，同時對應：pm2 程序名 ＝ 環境變數 `TPASS_SERVICE_ID` ＝ JWT 的 `aud` 後綴 ＝ 服務子網域。**id 一經選定即不再更名**（建議短、全小寫，例：`form`、`msg`、`lost`）。
 
-以下以 `lost`（遺失物）、port `3006` 為範例，實作時請替換為實際服務 id 與 port。
+以下以 `lost`（遺失物）、port `3007` 為範例，實作時請替換為實際服務 id 與 port。
 
 ### 服務註冊
 
-維運成員會在 ops repo 新增一筆登記（port 若衝突會被驗證擋下），`deployed` 欄位初始為 `false`，待服務成功上線後才改為 `true`。欄位定義見〈參考：services.json 欄位〉。此檔案不需自行修改。
+**整個註冊只有這一步：對 `YC815/tpass-registry` 開一個 PR，在 `services.json` 加一個物件。**
 
-### 註冊服務 id
+這個 repo 是公開的，任何人都能 fork + PR，不需要事先被加成 collaborator。merge 之後：
 
-若略過此步驟，authorize 請求將直接回傳 `400 Unknown service`。
+- **auth 的發證白名單**自動包含你（否則 authorize 會把使用者導去 `/service-error?reason=unknown-service`）
+- **portal 大廳的卡片**自動出現（等 `deployed` 翻成 `true` 之後，見〈部署〉）
+- **部署腳本與 pm2** 自動認得你的目錄與 port
 
-需在 auth 的 `.env.local` 白名單中加入服務 id，並重啟 auth：
+除此之外**不需要改任何其他 repo 的程式碼**——不必碰 portal，也不必碰 auth。
 
 ```bash
-AUTH_SERVICE_IDS=portal,form,msg,appeals,lost
+gh repo fork YC815/tpass-registry --clone      # 或到 GitHub 網頁按 Fork 再 git clone
+cd tpass-registry
+git checkout -b add-lost
 ```
 
-本機環境由開發者自行修改（見〈本機開發〉「啟動本機 auth」）；主機環境於上線時修改（見〈部署〉）。兩處皆須設定。
+在 `services.json` 的 `services` 陣列末端加一筆（完整欄位說明見〈參考：services.json 欄位〉）：
 
-### 門戶入口卡片
-
-服務需在 portal 首頁提供入口，使用者才能實際觸及。卡片網址為 env 驅動，需同步修改四處，缺一即會導致 portal build 失敗：
-
-**① `tpass-portal/src/config/services.ts` — `services[]` 加一筆**
-
-```ts
+```jsonc
 {
-  id: "lost",
-  name: "遺失物",
-  url: process.env.LOST_URL!,   // ← 絕不寫死網域
-  icon: "Search",               // lucide-react 的圖示名
-  tone: "orange",               // 只能是 green | blue | orange | violet | rose
-  roles: ["all"],
-  enabled: true,
-},
+  "id": "lost",
+  "name": "T-Lost 遺失物",
+  "dir": "tpass-lost",
+  "subdomain": "lost",
+  "port": 3007,                                       // 撞車會被 CI 擋下
+  "db": { "name": "t_lost", "user": "t_lost", "strategy": "migrate" },
+  "enabled": true,
+  "deployed": false,                                  // 首次上線成功後才翻 true
+  "portal": {                                         // 沒有這塊 = 不進大廳
+    "label": "遺失物",
+    "icon": "Search",                                 // lucide 的 PascalCase 名
+    "tone": "orange",                                 // green|blue|orange|violet|rose
+    "roles": ["all"]
+  }
+}
 ```
 
-**② 同一個檔的 `REQUIRED` 陣列加上你的 key**
+送出前先在本機驗一次（不需安裝任何依賴），然後開 PR：
 
-```ts
-const REQUIRED = ["FORM_URL", "MSG_URL", "APPEALS_URL", "LOST_URL"] as const;
+```bash
+node validate.mjs
+git commit -am "registry: 登記 lost（遺失物）"
+git push -u origin add-lost
+gh pr create --fill
 ```
 
-**③ portal 的本機 `.env.local`**：`LOST_URL=https://lost.lvh.me:3006`
-
-**④ portal 的主機 `.env.local`**：`LOST_URL=https://lost.tschoolsu.org` → **然後重新部署 portal**（見〈部署〉）。
-
-> [!WARNING]
-> 若完成第②步而未完成第④步，portal 下次部署時會在 build 前被 env 檢查擋下（`缺少必填變數：LOST_URL`），且此問題會由下一位部署 portal 的人員遭遇，而非本次變更者。四個步驟須一次完成。
+> [!NOTE]
+> **卡片網址不寫在這裡**——它由 `subdomain` + `port` + 頂層 `domains` 自動推導成
+> `https://lost.lvh.me:3007`（本機）或 `https://lost.tschoolsu.org`（正式）。
+> 這也是為什麼你的程式碼裡**永遠不該寫死網域**。
 
 ## 專案結構
 
@@ -441,7 +444,7 @@ JWT_ISSUER=https://auth.lvh.me:3000
 AUTH_JWKS_URL=https://auth.lvh.me:3000/.well-known/jwks.json
 AUTH_AUTHORIZE_URL=https://auth.lvh.me:3000/api/auth/authorize
 AUTH_LOGOUT_URL=https://auth.lvh.me:3000/api/auth/logout
-LOST_SELF_URL=https://lost.lvh.me:3006
+LOST_SELF_URL=https://lost.lvh.me:3007
 ```
 
 網址不應寫死於程式碼中——上線時僅需修改此檔（改為 `*.tschoolsu.org`，不含 port），程式碼無需異動。同時將這些 key（以佔位值表示）補入 `.env.example`，供後續維護者參考。
@@ -695,15 +698,26 @@ mkcert -cert-file cert.pem -key-file key.pem \
 
 ### 啟動本機 auth
 
-此步驟僅需執行一次：
+此步驟僅需執行一次。**auth 與註冊表必須 clone 在同一層**——auth 會讀 `../tpass-registry/services.json` 決定可以為哪些服務發證：
 
 ```bash
 git clone git@github.com:YC815/tpass-auth.git
+git clone https://github.com/YC815/tpass-registry.git   # ★ 與 tpass-auth 同一層
 cd tpass-auth
 pnpm install
 node scripts/gen-keys.mjs          # 產一組「你自己的」dev EdDSA 金鑰，把印出的兩行貼進下面
 cp .env.example .env.local
 ```
+
+auth 有自己的資料庫（記著誰在哪個服務是什麼角色），本機也要建一份：
+
+```bash
+createuser t_auth                                  # 已存在會報錯，可忽略
+createdb -O t_auth t_auth
+```
+
+> [!NOTE]
+> 若 `createuser` / `createdb` 不存在，表示本機沒有 PostgreSQL：`brew install postgresql@17 && brew services start postgresql@17`。
 
 `.env.local` 填入以下內容（`GOOGLE_*` 兩行需向維運成員索取）：
 
@@ -713,12 +727,25 @@ GOOGLE_CLIENT_SECRET=<維運給的 dev secret>
 AUTH_BASE_URL=https://auth.lvh.me:3000
 AUTH_ALLOWED_HOST_SUFFIX=lvh.me                  # 本機只放行 *.lvh.me
 AUTH_ALLOWED_EMAIL_DOMAIN=tschool.tp.edu.tw
-AUTH_SERVICE_IDS=portal,form,msg,appeals,lost    # ★ 記得加你的 id（§1.2）
 PORTAL_URL=https://portal.lvh.me:3001
 JWT_ISSUER=https://auth.lvh.me:3000
 JWT_TTL_SECONDS=28800
 JWT_PRIVATE_KEY=<gen-keys.mjs 印的>              # 你本機自己的一把
 JWT_PUBLIC_KEY=<gen-keys.mjs 印的>
+DATABASE_URL=postgresql://t_auth@localhost:5432/t_auth
+AUTH_SUPERADMINS=<你的學校信箱>                   # 生態總管，恆為所有服務 admin
+```
+
+> [!NOTE]
+> **服務白名單不在這裡**。auth 可以為哪些服務發證，完全由 `../tpass-registry/services.json` 決定
+> ——你在〈事前準備〉「服務註冊」加的那一筆，把 registry clone 到同一層就會生效，
+> 本機不需要另外設定。
+
+套用資料庫 schema（Prisma CLI 只讀 `.env`，所以先把 `.env.local` 匯進環境）：
+
+```bash
+set -a; . ./.env.local; set +a
+pnpm exec prisma migrate deploy
 ```
 
 > [!IMPORTANT]
@@ -741,7 +768,7 @@ pnpm dev           # auth 的 package.json 已經設好 HTTPS + auth.lvh.me:3000
     "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "prisma", "sharp", "unrs-resolver"]
   },
   "scripts": {
-    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 next dev --experimental-https --experimental-https-key $HOME/tpass-certs/key.pem --experimental-https-cert $HOME/tpass-certs/cert.pem -H lost.lvh.me -p 3006"
+    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 next dev --experimental-https --experimental-https-key $HOME/tpass-certs/key.pem --experimental-https-cert $HOME/tpass-certs/cert.pem -H lost.lvh.me -p 3007"
   }
 }
 ```
@@ -754,7 +781,7 @@ pnpm dev           # auth 的 package.json 已經設好 HTTPS + auth.lvh.me:3000
 | 參數 | 缺少時的影響 |
 | --- | --- |
 | `--experimental-https...` | 缺少 HTTPS，Google 不予回跳，`Secure` cookie 亦無法寫入 |
-| `-H lost.lvh.me -p 3006` | 若運行於 `localhost`，cookie 網域、`redirect_uri`、`aud` 全部無法對應，登入必然失敗 |
+| `-H lost.lvh.me -p 3007` | 若運行於 `localhost`，cookie 網域、`redirect_uri`、`aud` 全部無法對應，登入必然失敗 |
 | `NODE_TLS_REJECT_UNAUTHORIZED=0` | 登入成功後立即被導回登入頁，且無任何錯誤訊息（詳見下方說明） |
 
 第三項參數的原理值得說明。服務後端需 fetch auth 的公鑰（`https://auth.lvh.me:3000/.well-known/jwks.json`），但 Next（Turbopack）server 端所使用的 fetch（undici）不讀取 `NODE_EXTRA_CA_CERTS`，即不信任 mkcert 簽發的憑證。其結果是公鑰擷取失敗，導致驗章失敗，callback 靜默回傳 401，使用者被導回登入頁並反覆循環。關閉本機的 TLS 驗證即是為了繞過此問題。
@@ -770,10 +797,10 @@ pnpm dev           # auth 的 package.json 已經設好 HTTPS + auth.lvh.me:3000
 
 ```bash
 cd tpass-auth  && pnpm dev      # 終端機 1：發證端 → https://auth.lvh.me:3000
-cd tpass-lost  && pnpm dev      # 終端機 2：你的服務 → https://lost.lvh.me:3006
+cd tpass-lost  && pnpm dev      # 終端機 2：你的服務 → https://lost.lvh.me:3007
 ```
 
-接著開啟 `https://lost.lvh.me:3006`。
+接著開啟 `https://lost.lvh.me:3007`。
 
 **Google 登入流程無法自動化**（會被 Google 阻擋，亦違反服務條款），此步驟須由真人手動完成。
 
@@ -790,7 +817,7 @@ pnpm exec tsc --noEmit
 
 以下五項需全數通過，皆可在兩個終端機環境下完成測試，不需啟動 portal。
 
-- [ ] **登得進**：開 `https://lost.lvh.me:3006` → 被導去 auth → Google 登入 → 回到你的頁面，看到自己的名字。
+- [ ] **登得進**：開 `https://lost.lvh.me:3007` → 被導去 auth → Google 登入 → 回到你的頁面，看到自己的名字。
 - [ ] **cookie 是 host-only**：DevTools → Application → Cookies → `lost.lvh.me`：有一顆 `tpass_token`，
       而且 **Domain 欄是 `lost.lvh.me`——前面沒有那個點**。有點（`.lvh.me`）就是你設了 `Domain`，
       通行證會外洩給其他服務，回去看〈安全規範〉。
@@ -801,7 +828,7 @@ pnpm exec tsc --noEmit
 - [ ] **隔離測試（最關鍵，可揪出最嚴重的錯誤）**：在瀏覽器直接開這個網址——
       注意 `service` 是**別人**（`portal`），但 `redirect_uri` 指向**你的** callback：
 
-      https://auth.lvh.me:3000/api/auth/authorize?service=portal&redirect_uri=https://lost.lvh.me:3006/api/auth/callback&next=/
+      https://auth.lvh.me:3000/api/auth/authorize?service=portal&redirect_uri=https://lost.lvh.me:3007/api/auth/callback&next=/
 
       auth 會簽一張 `aud=tpass:portal` 的票 POST 給你。**你的 callback 必須回 401。**
       如果它讓你登入了，代表你沒驗 `audience`——別人服務的票在你家能用，隔離全毀。
@@ -814,34 +841,35 @@ pnpm exec tsc --noEmit
 | # | 執行者 | 內容 |
 | --- | --- | --- |
 | 1 | 你 | Cloudflare DNS：`lost.tschoolsu.org` A record → 主機 IP，**先開灰雲（DNS only）** |
-| 2 | **[root]** | nginx server block（反向代理到 `127.0.0.1:3006`）+ `certbot` 簽 TLS 憑證 |
+| 2 | **[root]** | nginx server block（反向代理到 `127.0.0.1:3007`）+ `certbot` 簽 TLS 憑證 |
 | 3 | 你 | `curl` 直連確認 200 → **切回橘雲** |
 | 4 | **[root]** | 有資料庫的話：建 `t_lost` role + database，把 `DATABASE_URL` 給你 |
-| 5 | 維運 | ops repo：`services.json` 的 `lost` 把 `deployed` 改成 `true` → merge main |
-| 6 | 你 | 主機上 `git clone` 你的 repo 到 `~/tpass/tpass-lost`，寫 `.env.local`（正式網域、**沒有 port**） |
-| 7 | 你 | 主機 `~/tpass/tpass-auth/.env.local`：`AUTH_SERVICE_IDS` 加上 `lost` |
-| 8 | 你 | 主機 `~/tpass/tpass-portal/.env.local`：加 `LOST_URL=https://lost.tschoolsu.org`（〈事前準備〉「門戶入口卡片」第 ④ 步） |
-| 9 | 你 | 部署 `auth` → `portal` → `lost`（見〈部署〉「部署指令」） |
-| 10 | 你 | 瀏覽器真人走一次登入，跑一遍〈本機開發〉「驗收清單」（把 `lvh.me:3006` 換成正式網域） |
+| 5 | 你 | 主機上 `git clone` 你的 repo 到 `~/tpass/tpass-lost`，寫 `.env.local`（正式網域、**沒有 port**） |
+| 6 | 你 | 部署 `lost`（見〈部署指令〉），跑到通為止 |
+| 7 | 你 | registry PR：把 `lost` 的 `deployed` 改成 `true` → merge → 重新部署 `auth` 與 `portal` |
+| 8 | 你 | 瀏覽器真人走一次登入，跑一遍〈本機開發〉「驗收清單」（把 `lvh.me:3007` 換成正式網域） |
 
 > [!NOTE]
 > **灰雲 / 橘雲為何需要來回切換？** Let's Encrypt 簽發憑證時的驗證請求須直接抵達主機，Cloudflare 橘雲代理會攔截該請求，導致憑證簽發失敗。因此流程為：先灰雲 → 簽發完成 → 再切橘雲（橘雲可隱藏源站 IP、抵禦攻擊、提供快取）。
 
 ### 部署指令
 
-主機上已備有 `deploy.sh`，無需另行記憶完整指令。針對指定服務，此腳本會依序執行：**env 必填檢查**（缺 key 於 build 前即擋下）→ `git pull` → 視需要 `pnpm install --frozen-lockfile` → `prisma generate` → `pnpm build` → 套用 DB schema → `pm2` zero-downtime reload → **健康檢查**（打服務所在 port，30 秒內未收到健康回應即視為失敗）。
+主機上已備有 `deploy.sh`。針對指定服務，此腳本會依序執行：**拉取最新註冊表**（`tpass-registry`）→ **env 必填檢查**（缺 key 於 build 前即擋下）→ `git pull` → 視需要 `pnpm install --frozen-lockfile` → `prisma generate` → `pnpm build` → 套用 DB schema → `pm2` zero-downtime reload → **健康檢查**（打服務所在 port，30 秒內未收到健康回應即視為失敗）。
 
 ```bash
 ssh <帳號>@<主機>                     # 位址與帳號跟維運要。★ 絕不寫進任何 repo / commit / PR
 
-cd ~/tpass && git pull --ff-only      # 先更新 ops（services.json、deploy.sh 才是最新的）
+cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身）；註冊表由 deploy.sh 自己拉
 
-./deploy/deploy.sh auth               # ① 白名單生效，否則你的服務會收到 400 Unknown service
-./deploy/deploy.sh portal             # ② 門戶卡片生效（LOST_URL 是新的必填 key，不部署 portal 就看不到你）
-./deploy/deploy.sh lost               # ③ 你的服務首次啟動
+./deploy/deploy.sh lost               # 你的服務首次啟動
 ```
 
-執行順序具有意義，前兩項不可省略。
+**你的 registry PR merge 之後，還要重新部署 auth 與 portal** ——它們是在 build 時把註冊表烤進去的，不重新部署就不會知道有你這號人物：
+
+```bash
+./deploy/deploy.sh auth               # ① 發證白名單納入 lost（否則使用者會被導去 /service-error）
+./deploy/deploy.sh portal             # ② 大廳卡片出現（需要 deployed 已翻 true）
+```
 
 查看狀態與 log（皆於主機上執行）：
 
@@ -852,9 +880,6 @@ pm2 logs lost --lines 100  # 你的服務的錯誤
 
 **Rollback**：於 repo 執行 `git revert` 產生新 commit → merge 進 main → 重新執行 `./deploy/deploy.sh lost`，不需特殊機制。build 失敗時舊版程序不受影響、不會停機——`deploy.sh` 採先 build 成功才 reload 的策略。
 
-> [!NOTE]
-> 維運部員手上有一支本機遙控器（`tpass deploy lost`），其效果等同於上述四行 ssh 指令，非必要工具。
-
 ## 疑難排解
 
 | 症狀 | 原因 / 解法 |
@@ -862,9 +887,9 @@ pm2 logs lost --lines 100  # 你的服務的錯誤
 | 登入完**馬上被踢回登入頁**（本機） | 多半是 dev 指令缺少 `NODE_TLS_REJECT_UNAUTHORIZED=0`，導致後端抓不到 auth 的 JWKS 公鑰（見〈本機開發〉「設定 dev 指令」）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` |
 | 登入完**馬上被踢回登入頁**（主機） | 與 TLS 無關，**絕不要**在主機加 `NODE_TLS_REJECT_UNAUTHORIZED`。查 `iss` / `aud` 是否對應（見下兩列） |
 | 瀏覽器說憑證不安全 | 憑證未涵蓋該子網域。重跑〈本機開發〉「建立本機憑證」的 `mkcert`，把 `lost.lvh.me` 加進去；`mkcert -install` 也需重新執行 |
-| authorize 回 `400 Unknown service` | 該 id 未加入 auth 的 `AUTH_SERVICE_IDS`，加入後須重啟 auth |
-| authorize 回 `400 Invalid redirect_uri` | `redirect_uri` 須為完整網址，且網域須在生態系範圍內（防 Open Redirect） |
-| authorize 回 `400 Invalid next` | `next` 必須是站內路徑（以 `/` 開頭，且不以 `//` 開頭） |
+| 被導去 `/service-error?reason=unknown-service` | 該 id 不在註冊表裡。確認 registry PR 已 merge，且 auth 在那之後**重新部署過**（本機則是 `../tpass-registry` 已 clone 並重啟 auth） |
+| 被導去 `/service-error?reason=invalid-redirect` | `redirect_uri` 須為完整網址，且網域須在生態系範圍內（防 Open Redirect） |
+| 被導去 `/service-error?reason=invalid-next` | `next` 必須是站內路徑（以 `/` 開頭，且不以 `//` 開頭） |
 | 一直跳 `/?error=domain` | 登入使用的 Google 帳號非學校網域信箱 |
 | callback 收到 token 但驗不過（401） | `aud` 不相符。確認驗證的是 `tpass:<id>`，且該 id 與 authorize 帶的 `service` 一致 |
 | 驗章一直失敗，但 token 看起來很正常 | `iss` 字串差一個 port 或結尾斜線也會導致失敗，須與 auth 的 `JWT_ISSUER` 逐字比對 |
@@ -872,8 +897,9 @@ pm2 logs lost --lines 100  # 你的服務的錯誤
 | 登入一段時間後失效 | 正常現象，per-service token 壽命＝auth 端 `JWT_TTL_SECONDS`（建議 45 分鐘）；重新走一次登入會自動換到新票 |
 | 服務一啟動就報「缺少必填環境變數」 | 對照 `src/config/lost.ts` 的 `REQUIRED` 陣列補齊 `.env.local`（該陣列即必填清單的唯一真相） |
 | 部署被擋，說 env 缺 key | 同上，但須補齊的是**主機上**的 `.env.local`。`deploy.sh` 於 build 前即擋下，此為刻意設計 |
-| 上線了，但 **portal 首頁看不到你的卡片** | 〈事前準備〉「門戶入口卡片」的四步未完成——最常遺漏第 ④ 步（主機 portal 的 `.env.local` 加 `LOST_URL`）並重新部署 portal |
-| 部署 portal 時報 `缺少必填變數：LOST_URL` | `LOST_URL` 已加入 `REQUIRED`，但主機 portal 的 `.env.local` 未同步加入。見〈事前準備〉「門戶入口卡片」第 ④ 步 |
+| 上線了，但 **portal 首頁看不到你的卡片** | 依序確認三件事：① registry 裡你那筆有 `portal` 區塊；② `deployed` 已翻成 `true`；③ portal 在那之後**重新部署過**（卡片是 build 時烤進去的） |
+| auth 或 portal 一啟動就報「讀不到服務註冊表」 | `tpass-registry` 沒 clone 在它的上一層。錯誤訊息裡有它試過的完整路徑與 clone 指令 |
+| portal 報「portal.icon 不在圖示白名單裡」 | registry 用了 portal 沒登記的 lucide 圖示。錯誤訊息會印出可用清單；要新增就在 `tpass-portal/src/config/icons.ts` 加一行 |
 
 ## 安全規範
 
@@ -924,21 +950,31 @@ callback 收到的 token，解開後結構如下：
 
 ## 參考：services.json 欄位
 
-頂層的 `services.json` 是服務清單的唯一真相，所有工具（CLI、pm2 設定、部署腳本）皆從此讀取。不應在其他位置另行硬編碼服務清單、port 或目錄名稱。
+`YC815/tpass-registry` 的 `services.json` 是服務清單的唯一真相：auth 的發證白名單、portal 的大廳卡片、pm2 設定與部署腳本全部從此派生。不應在其他位置另行硬編碼服務清單、port、目錄名或網域。
 
 ```jsonc
 {
-  "id": "lost",              // 短名。＝pm2 程序名＝tpass 參數＝TPASS_SERVICE_ID＝aud 後綴。永不改名
-  "name": "T-Lost 遺失物",    // 顯示名稱
+  "id": "lost",              // 短名。＝pm2 程序名＝TPASS_SERVICE_ID＝aud 後綴。永不改名
+  "name": "T-Lost 遺失物",    // ops 用的長名（CLI、部署 log）
   "dir": "tpass-lost",       // repo 目錄名（本機與主機一致）
   "subdomain": "lost",       // 本機＝lost.lvh.me；正式＝lost.tschoolsu.org
-  "port": 3006,              // 內部 port。撞車會被驗證擋下
+  "port": 3007,              // 內部 port（只綁 127.0.0.1）。撞車會被 CI 擋下
   "db": {                    // 沒有資料庫就填 null
     "name": "t_lost",        // 資料庫名（慣例 t_<id>）
     "user": "t_lost",        // 專屬 role（慣例 t_<id>）
     "strategy": "migrate"    // migrate = 有 migrations 歷史（標準做法）；push 僅限原型
   },
-  "enabled": true,           // false = 本機工具全部跳過（封存用）
-  "deployed": false          // true = 納入部署。首次上線成功後才翻 true
+  "enabled": true,           // false = 工具與發證白名單全部跳過（封存用）
+  "deployed": false,         // true = 納入部署，卡片才會出現。首次上線成功後才翻 true
+  "portal": {                // 選填。沒有這塊 = 不進大廳（純後端服務）
+    "label": "遺失物",        // 卡片顯示名
+    "icon": "Search",        // lucide 圖示的 PascalCase 名（見 lucide.dev/icons）
+    "tone": "orange",        // green | blue | orange | violet | rose
+    "roles": ["all"]         // all | student | teacher
+  }
 }
 ```
+
+**卡片網址不在這裡**：由 `subdomain` + `port` + 頂層 `domains` 推導。大廳只顯示同時滿足 `enabled` + `deployed` + 有 `portal` 區塊的服務。
+
+完整規則與 `node validate.mjs` 的檢查項目見該 repo 的 `README.md`。

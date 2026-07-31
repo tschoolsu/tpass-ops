@@ -1,9 +1,11 @@
-// 服務註冊表載入器。services.json 是唯一真相來源，這裡負責：
+// 服務註冊表載入器。註冊表住在並排的 tpass-registry/ repo（public），是唯一真相來源；
+// portal 的大廳卡片與 auth 的發證白名單也各自讀同一份檔案。這裡負責：
 // 1. 載入 + 驗證（id/dir/port/subdomain 唯一性——撞車直接 fail，杜絕 3004 級 bug）
 // 2. 派生欄位（dev/prod URL、DATABASE_URL 慣例、憑證路徑）
 //
 // TPASS_ROOT：服務 repo 所在根目錄的覆寫（預設 = ops repo 根）。
 // 用途：ops repo 的 git worktree 裡沒有服務子 repo，測試時可指回真正的 checkout。
+// 註冊表也跟著 ROOT 走——worktree 裡本來就沒有 tpass-registry/。
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,9 +21,17 @@ function fail(msg) {
   process.exit(1);
 }
 
+export const REGISTRY_DIR = join(ROOT, "tpass-registry");
+export const REGISTRY_FILE = join(REGISTRY_DIR, "services.json");
+
 function load() {
-  const file = join(OPS_ROOT, "services.json");
-  if (!existsSync(file)) fail(`找不到 ${file}`);
+  const file = REGISTRY_FILE;
+  if (!existsSync(file)) {
+    console.error(`✗ 找不到服務註冊表 ${file}`);
+    console.error(`  註冊表住在並排的 public repo，先 clone 一次：`);
+    console.error(`    git -C ${ROOT} clone https://github.com/YC815/tpass-registry.git`);
+    process.exit(1);
+  }
   let data;
   try {
     data = JSON.parse(readFileSync(file, "utf8"));

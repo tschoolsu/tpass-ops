@@ -27,19 +27,23 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-form/` | 問卷系統（T-Form） | `https://form.lvh.me:3002` | 問卷建構/填寫/匯出，PostgreSQL+Prisma。 |
 | `tpass-cross_grade_messages/` | 跨屆代傳（T-Msg） | `https://msg.lvh.me:3003` | 訊息廣播到 Google Chat webhook，PostgreSQL+Prisma。 |
 | `tpass-appeals/` | 申訴系統（T-Appeals） | `https://appeals.lvh.me:3004` | 申訴收件 + Discord 通知，PostgreSQL+Prisma。 |
+| `tpass-vote/` | 選舉系統（T-Vote） | `https://vote.lvh.me:3006` | 開發中，尚未上線（註冊表 `deployed:false`）。設計決策見 memory。 |
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
-| `services.json` | **服務註冊表（唯一真相）** | — | id/目錄/子網域/port/DB 策略全在這；所有工具從它讀，**不得另行硬編碼**。 |
+| `tpass-registry/` | **服務註冊表（唯一真相）** | — | **public repo**，並排 clone。id/目錄/子網域/port/DB 策略/大廳卡片全在 `services.json`；auth 白名單、portal 卡片、pm2、deploy 全部從它派生，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
 | `docs/` | ops 文檔（**只有三份**） | — | NEW-SERVICE（開新服務＋串登入＋上線）/ ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。 |
 
-> **git repos**（全在 GitHub `YC815` 底下）：`tpass-ops`（＝頂層本身，private）、`tpass-auth`、
-> `tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals`、
-> `tpass-directory`（封存）。主機 `~/tpass` 是 `tpass-ops` 的 clone，各服務 repo 並排 clone 其下。
+> **git repos**（全在 GitHub `YC815` 底下）：**public** 只有 `tpass-registry`（服務註冊表）；
+> **private** 有 `tpass-ops`（＝頂層本身）、`tpass-auth`、`tpass-portal`、`tpass-form`、
+> `tpass-cross_grade_messages`、`tpass-appeals`、`tpass-vote`、`tpass-directory`（封存）。
+> 主機 `~/tpass` 是 `tpass-ops` 的 clone，其餘 repo 並排 clone 其下——**本機與主機佈局同構**，
+> auth / portal 就靠 `../tpass-registry/services.json` 這條相對路徑找註冊表。
 
 > ⚠️ 每個服務子專案各有自己的 `.git`。頂層 `tschool/` 是獨立的 **`tpass-ops`** git repo，
-> 只追蹤 ops 層（`services.json`、`scripts/`、`deploy/`、`docs/`、這些 md）。
-> 各服務子 repo 被頂層 `.gitignore`（deny-all 白名單）排除，頂層 git 從不碰它們。
-> 🚫 鐵律：**不要 `git add` 子 repo、`deploy/host.env`、`certs/`、`~/`**——機密與服務碼都不進 ops repo。
+> 只追蹤 ops 層（`scripts/`、`deploy/`、`docs/`、這些 md）。
+> 各服務子 repo 與 `tpass-registry/` 被頂層 `.gitignore`（deny-all 白名單）排除，頂層 git 從不碰它們。
+> 🚫 鐵律：**不要 `git add` 子 repo、`tpass-registry/`、`deploy/host.env`、`certs/`、`~/`**——機密與服務碼都不進 ops repo。
+> 🚫 **`tpass-registry` 是公開的**：任何密鑰、密碼、主機位址都不得出現在那裡。
 
 ---
 
@@ -53,8 +57,8 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | **開一個新服務 → 串登入 → 上線**（部員動手版，Next.js，自給自足） | `docs/NEW-SERVICE.md` | 🟢 權威（人類讀這份） |
 | **驗章參考實作**（直接照抄） | `tpass-portal/src/lib/tpass-auth.ts` + `src/config/portal.ts` + `src/app/api/auth/{callback,logout}/route.ts` | 🟢 權威 |
 | **開發 / 部署 / 主機 / nginx / Cloudflare / 排錯**（自給自足） | `docs/ONBOARDING.md`（`tpass` CLI 為唯一入口） | 🟢 權威 |
-| **服務清單 / port / DB 策略** | `services.json`（工具讀）；欄位定義見 `docs/NEW-SERVICE.md` 附錄 B | 🟢 權威 |
-| **新增服務** | `scripts/tpass new` + `docs/NEW-SERVICE.md` | 🟢 權威 |
+| **服務清單 / port / DB 策略 / 大廳卡片** | `tpass-registry/services.json`（唯一真相，public repo）；欄位定義見該 repo `README.md` | 🟢 權威 |
+| **新增服務** | 對 `tpass-registry` 開 PR；流程見 `docs/NEW-SERVICE.md`〈服務註冊〉 | 🟢 權威 |
 | **安全審查發現與狀態** | `docs/SECURITY-REVIEW.md` | 🟢 權威 |
 | **權限怎麼管**（role/restriction、ban/warning、panel 操作） | auth 的 `/admin` panel（實際管理介面）＋ `tpass-auth/INTEGRATION.md` §3（claim 契約與生效時間） | 🟢 權威 |
 | **UI 風格 / design system** | `tpass-portal/docs/design.md` | 🟢 權威 |
@@ -78,7 +82,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 
 契約 v2，新服務接 SSO 本質五步（完整版見 `tpass-auth/INTEGRATION.md §12`）：
 
-1. 服務 id 登記：`services.json` + auth 的 `AUTH_SERVICE_IDS`。
+1. 服務 id 登記：對 `tpass-registry` 開 PR（**就這一處**；auth 白名單與 portal 卡片都從它派生）。
 2. 未登入 → 導去 `…/api/auth/authorize?service=<id>&redirect_uri=<自己的callback>&next=<路徑>`。
 3. 自備 `POST /api/auth/callback`：用 `jose` + JWKS 驗章（**四鐵則**：`algorithms:['EdDSA']`
    / `issuer` / `audience: 'tpass:<id>'` / `exp`）→ 寫**自己網域的 host-only HttpOnly cookie**。
@@ -111,7 +115,10 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
 
 - ❌ 消費端不要 import / 複製 auth 的私鑰、`arctic`、OAuth callback。**只需要公鑰。**
 - ❌ 不要在前端驗章、不要把 token 塞 `localStorage`、不要關掉 `algorithms: ['EdDSA']` 鎖定。
-- ❌ 不要把網域 / issuer / audience / 服務清單寫死——讀 `config/*`（env）與 `services.json`。
+- ❌ 不要把網域 / issuer / audience / 服務清單寫死——讀 `config/*`（env）與 `tpass-registry`。
+- ❌ **不要在 portal 或 auth 裡硬編碼服務清單**（曾經有過：portal 的卡片陣列 + `<SVC>_URL` env、
+  auth 的 `AUTH_SERVICE_IDS`，兩者都已於 2026-07-31 廢除）。大廳卡片與發證白名單一律派生自
+  `tpass-registry/services.json`；卡片網址由 `subdomain` + `domains` + `port` 推導，不入檔。
 - ❌ 權限判斷一律讀 JWT 的 `permissions` claim（`perm.role`／`perm.read`，見
   `tpass-auth/INTEGRATION.md` §3）；`groups` 已於 2026-07-27 全面移除（不是 deprecated，是
   不存在），token 裡不會再有這個欄位，別再寫或讀 `groups.includes(...)`；
@@ -125,6 +132,7 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
 ## 6. 本機跑起來（詳見 `docs/ONBOARDING.md`）
 
 ```bash
+git clone https://github.com/YC815/tpass-registry.git   # 一次性：註冊表必須並排存在，否則 auth/portal 起不來
 scripts/tpass setup    # 一次性：mkcert + pnpm install + 金鑰 + DB（冪等）
 scripts/tpass dev      # 日常：全服務 HTTPS + HMR（SSO 全流程可測）
 scripts/tpass check    # push 前：lint + tsc

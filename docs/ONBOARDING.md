@@ -41,8 +41,8 @@
 | `tpass deploy <svc>` | `ssh <主機> 'cd ~/tpass && git pull --ff-only && ./deploy/deploy.sh <svc>'` |
 | `tpass logs <svc>` | `ssh <主機> 'pm2 logs <svc> --lines 100'` |
 | `tpass status` | 本機 port 探測 + `ssh <主機> 'pm2 jlist'` + 各 repo `HEAD` vs `origin/main` |
-| `tpass new <id>` | 寫一筆進 `services.json` + 印出需要 root 的人工步驟 |
-| `tpass list` / `tpass ui` | 讀 `services.json` 印出來 / 開瀏覽器儀表板 |
+| `tpass new <id>` | 寫一筆進 `tpass-registry/services.json` + 印出需要 root 的人工步驟（**PR 仍要自己開**） |
+| `tpass list` / `tpass ui` | 讀 `tpass-registry/services.json` 印出來 / 開瀏覽器儀表板 |
 
 不帶參數直接打 `scripts/tpass` 會跳互動選單。
 
@@ -60,35 +60,40 @@
 
 | 角色 | 能做 | 不能做 |
 | --- | --- | --- |
-| 部員（服務開發者） | 自己的 repo、ssh 進主機部署自己的服務、pm2 | nginx、TLS 憑證、建 PostgreSQL role/db、系統套件、改 `services.json` |
-| 維運（顧生態系） | 上面全部 + ops repo + `tpass` + 註冊表 | 同上（除非他也有 root） |
+| 部員（服務開發者） | 自己的 repo、對 `tpass-registry` 開 PR、ssh 進主機部署自己的服務、pm2 | nginx、TLS 憑證、建 PostgreSQL role/db、系統套件、**merge registry PR** |
+| 維運（顧生態系） | 上面全部 + ops repo + `tpass` + merge registry PR | 同上（除非他也有 root） |
 | 有 root 的維運 | nginx vhost、certbot、Cloudflare DNS、`sudo -u postgres psql` | —— |
 
 需要 root 的操作，**停下來把指令交給有 root 的人**。
 
 ---
 
-## 1. 服務清單（`services.json` = 唯一真相）
+## 1. 服務清單（`tpass-registry` = 唯一真相）
 
-所有工具（CLI、pm2 設定、部署腳本）都從頂層 `services.json` 讀服務清單、port、DB 策略。**不要在任何地方另外硬編碼這些資訊。**
+服務清單住在**並排的公開 repo** `YC815/tpass-registry` 的 `services.json`。從它派生的東西有四樣：
 
-| id | 服務 | 目錄 | 本機網址 | 正式網址 | port | DB |
-| --- | --- | --- | --- | --- | --- | --- |
-| `auth` | SSO 發證 | `tpass-auth/` | `auth.lvh.me:3000` | `auth.tschoolsu.org` | 3000 | `t_auth` |
-| `portal` | 門戶大廳 | `tpass-portal/` | `portal.lvh.me:3001` | `portal.tschoolsu.org` | 3001 | — |
-| `form` | T-Form 問卷 | `tpass-form/` | `form.lvh.me:3002` | `form.tschoolsu.org` | 3002 | `t_form` |
-| `msg` | T-Msg 跨屆代傳 | `tpass-cross_grade_messages/` | `msg.lvh.me:3003` | `msg.tschoolsu.org` | 3003 | `t_msg` |
-| `appeals` | T-Appeals 申訴 | `tpass-appeals/` | `appeals.lvh.me:3004` | `appeals.tschoolsu.org` | 3004 | `t_appeals` |
-| `directory` | 目錄服務 | `tpass-directory/` | — | — | 3005 | （**已封存，不部署**） |
+| 消費者 | 派生出什麼 |
+| --- | --- |
+| `tpass-auth` | 可以發證的服務白名單（build 時讀 `../tpass-registry/services.json`） |
+| `tpass-portal` | 大廳卡片：顯示名、圖示、配色、網址（同上，build 時讀） |
+| `deploy/ecosystem.config.js` | pm2 的 app 清單（只取 `deployed:true`） |
+| `deploy/deploy.sh`、`scripts/tpass` | 目錄、port、DB 策略 |
 
-**每個服務是一個獨立的 git repo**（不是 monorepo）。頂層 `tschool/` 本身也是一個 repo（`tpass-ops`），只追蹤維運層：`services.json`、`scripts/`、`deploy/`、`docs/`。
+**不要在任何地方另外硬編碼這些資訊**——包括不要在這份文件裡再抄一張服務表。
+現在有哪些服務、port 是多少，一律以 `cat ~/tpass/tpass-registry/services.json` 或 `scripts/tpass list` 為準。
 
-git repos：
+因為 auth 與 portal 是在 **build 時**把註冊表烤進去的，所以 registry merge 之後**必須重新部署這兩個**才會生效。`deploy.sh` 每次執行都會先 `git pull` 註冊表，所以主機永遠只認 `tpass-registry` main 的最新版。
 
-- `tpass-ops`（頂層，private）、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals`、`tpass-directory`（已封存）
-- 全部在 GitHub 的 `YC815` 底下。
+**每個服務是一個獨立的 git repo**（不是 monorepo）。頂層 `tschool/` 本身也是一個 repo（`tpass-ops`），只追蹤維運層：`scripts/`、`deploy/`、`docs/`。
 
-> 🚫 **鐵律**：頂層 ops repo 絕對不要 `git add` 服務子 repo、`deploy/host.env`、`certs/`。機密與服務程式碼都不進 ops repo。
+git repos（全部在 GitHub 的 `YC815` 底下）：
+
+- **public**：`tpass-registry`（服務註冊表，部員 fork + PR 的地方）
+- **private**：`tpass-ops`（頂層）、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals`、`tpass-vote`、`tpass-directory`（已封存）
+
+> 🚫 **鐵律**：頂層 ops repo 絕對不要 `git add` 服務子 repo、`tpass-registry/`、`deploy/host.env`、`certs/`。機密與服務程式碼都不進 ops repo。
+>
+> 🚫 **`tpass-registry` 是公開的**：那裡面永遠不該出現任何密鑰、密碼或主機位址。
 
 ---
 
@@ -188,8 +193,8 @@ scripts/tpass deploy        # 全部（registry 裡 deployed:true 的）
 
 ```bash
 ssh <帳號>@<主機>                     # 位址與帳號絕不進 git
-cd ~/tpass && git pull --ff-only      # 更新 ops（services.json / deploy.sh 吃最新 main）
-./deploy/deploy.sh form               # 或 all
+cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身吃最新 main）
+./deploy/deploy.sh form               # 或 all；註冊表由 deploy.sh 自己 pull
 ```
 
 `tpass deploy` 就只是幫你打這三行。
@@ -204,17 +209,18 @@ cd ~/tpass && git pull --ff-only      # 更新 ops（services.json / deploy.sh �
 
 每一步失敗都會中止並印出明確錯誤：
 
-1. ops repo `git pull` 自我更新（部署腳本、`services.json` 永遠吃最新 main）。
-2. 服務 repo `git pull --ff-only`。
-3. **env 必填檢查**——解析該 repo `src/config/*.ts` 的 `REQUIRED`，缺 key 在 build 前就擋下並印出缺哪些。
-4. `pnpm-lock.yaml` 有變才 `pnpm install --frozen-lockfile`（沒變就跳過，快很多）。
+1. ops repo `git pull` 自我更新（部署腳本永遠吃最新 main）。
+2. **註冊表 `git pull` + 驗證**（`tpass-registry` 永遠吃最新 main；驗證不過就中止，不拿壞掉的清單去部署）。
+3. 服務 repo `git pull --ff-only`。
+4. **env 必填檢查**——解析該 repo `src/config/*.ts` 的 `REQUIRED`，缺 key 在 build 前就擋下並印出缺哪些。
+5. `pnpm-lock.yaml` 有變才 `pnpm install --frozen-lockfile`（沒變就跳過，快很多）。
    `node_modules` 不是 pnpm 裝的（首次部署、或 npm 時代的舊裝）也會強制重裝——舊的先備份成 `node_modules.npm-bak`。
-5. `prisma generate`（有 DB 的服務；`pnpm exec`，只用鎖定版本，不會抓最新）。
-6. `pnpm build`。
-7. 套 DB schema：依 `services.json` 的 `db.strategy` 跑 `prisma migrate deploy`（標準）或 `prisma db push`（僅限原型）。
-8. `pm2 startOrReload`——既有服務零停機 reload；registry 新增的服務會自動首次啟動。
-9. **健康檢查**：對服務 port 打 HTTP，30 秒內拿到 <500 回應才算成功（app 起不來不會拿到假的 ✅）。
-10. 全部成功後 `pm2 save`（主機重開機後 resurrect 的就是最後一次成功部署的清單）。
+6. `prisma generate`（有 DB 的服務；`pnpm exec`，只用鎖定版本，不會抓最新）。
+7. `pnpm build`。
+8. 套 DB schema：依註冊表的 `db.strategy` 跑 `prisma migrate deploy`（標準）或 `prisma db push`（僅限原型）。
+9. `pm2 startOrReload`——既有服務零停機 reload；註冊表新增的服務會自動首次啟動。
+10. **健康檢查**：對服務 port 打 HTTP，30 秒內拿到 <500 回應才算成功（app 起不來不會拿到假的 ✅）。
+11. 全部成功後 `pm2 save`（主機重開機後 resurrect 的就是最後一次成功部署的清單）。
 
 ### rollback
 
@@ -252,10 +258,13 @@ build 失敗時舊版行程**不受影響**（reload 只在 build 成功之後�
 
 ```
 ~/tpass/                    ← 就是 ops repo 的 clone
-├── services.json           ← 服務註冊表
 ├── deploy/{deploy.sh, ecosystem.config.js}
+├── tpass-registry/         ← ★ 服務註冊表（public repo，並排 clone；deploy.sh 每次自己 pull）
 ├── tpass-auth/  tpass-portal/  tpass-form/  …   ← 各服務 repo 並排 clone
 ```
+
+> 佈局在**本機與主機完全同構**，這不是巧合：auth 與 portal 都用 `../tpass-registry/services.json`
+> 這條相對路徑找註冊表，靠的就是這個。少 clone 一個 `tpass-registry`，它們啟動時會直接報錯並印出 clone 指令。
 
 ### 進主機
 
@@ -317,7 +326,9 @@ scripts/tpass logs form -f     # 跟隨
 | `tpass deploy` 報 git 錯誤 | 主機 `~/tpass` 工作樹不乾淨（主機上不該手改檔案）。`scripts/ssh.sh 'git -C ~/tpass status'` 看 |
 | `tpass deploy` 健康檢查失敗 | `tpass logs <svc>` 看啟動錯誤；最常見是 env 缺值或 DB 連不上 |
 | 部署被擋，說 env 缺 key | 對照該 repo `.env.example` 補**主機上**的 `.env.local`（真相是 `src/config/*.ts` 的 REQUIRED） |
-| 部署後 502 | `tpass logs <svc>` 看 pm2 有沒有活；或 nginx 反代的 port 與 `services.json` 不一致 |
+| 部署後 502 | `tpass logs <svc>` 看 pm2 有沒有活；或 nginx 反代的 port 與註冊表不一致 |
+| 服務登記了，大廳還是沒卡片 | 註冊表 merge 之後**沒有重新部署 portal**。auth / portal 是在 build 時把清單烤進去的 |
+| auth / portal 起不來，說讀不到註冊表 | `~/tpass/tpass-registry` 沒 clone。錯誤訊息裡有完整路徑與 clone 指令 |
 | 切橘雲後 5xx / 憑證錯 | 憑證還沒簽好就切橘雲了——回灰雲、簽好、再切 |
 | Postgres 沒起來 | `brew services start postgresql@17` |
 | `tpass db setup <svc>` 卡在 `prisma migrate dev`，說沒權限建資料庫 | 已知坑：`db.mjs` 建 role 時只給 `LOGIN`，沒給 `CREATEDB`。本機 `migrate dev` 會另外開一個 shadow database 來算 migration diff，需要這個權限；正式站部署用的是 `migrate deploy`，**不建 shadow db，不需要 `CREATEDB`**，所以主機不受影響。本機解法：`psql -d postgres -c "ALTER ROLE t_<id> CREATEDB"` 補一次，冪等，之後 `tpass db setup <svc>` 就會過 |
