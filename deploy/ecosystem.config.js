@@ -1,4 +1,4 @@
-// PM2 設定：app 清單完全由 ../services.json（唯一真相）派生，只取 deployed:true。
+// PM2 設定：app 清單完全由 ../tpass-registry/services.json（唯一真相）派生，只取 deployed:true。
 // 放在伺服器上 ~/tpass/deploy/，各 repo 與本檔同層（~/tpass 即 tpass-ops repo clone）。
 // TLS / 對外入口由 nginx（root 管）+ Cloudflare 橘色雲負責，app 只綁 127.0.0.1。
 //
@@ -14,7 +14,7 @@
 //   - app 名稱 = services.json 的 id，deploy.sh 的 pm2 reload 依賴它，永不改名。
 const path = require("node:path");
 const ROOT = path.join(__dirname, ".."); // ~/tpass（deploy/ 的上一層）
-const { services } = require(path.join(ROOT, "services.json"));
+const { services } = require(path.join(ROOT, "tpass-registry", "services.json"));
 
 module.exports = {
   apps: services

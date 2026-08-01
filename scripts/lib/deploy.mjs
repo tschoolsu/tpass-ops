@@ -38,12 +38,13 @@ export function deploy(target = "all") {
   if (target !== "all") byId(target); // 驗證存在
   const ids = target === "all" ? deployedServices().map((s) => s.id) : [target];
   console.log(`▶ 部署 ${ids.join(", ")}（主機端：git pull ops → deploy.sh）`);
-  // ops repo 先自我更新（deploy.sh / services.json / ecosystem 都吃最新 main），
-  // 再執行 deploy.sh——自我更新發生在腳本被 bash 載入之前，避免改到執行中的檔案。
+  // ops repo 先自我更新（deploy.sh / ecosystem 吃最新 main），再執行 deploy.sh
+  // ——自我更新發生在腳本被 bash 載入之前，避免改到執行中的檔案。
+  // 註冊表（tpass-registry）由 deploy.sh 自己 pull，不在這裡處理。
   const r = ssh(`cd ~/tpass && git pull --ff-only && ./deploy/deploy.sh ${target}`);
   if (r.status !== 0) {
     console.error(`\n✗ 部署失敗（exit ${r.status}）。`);
-    console.error("  若錯誤是 git 相關：主機可能尚未 git 化 ~/tpass —— 見 docs/MERGE-AND-DEPLOY.md 的一次性 runbook。");
+    console.error("  若錯誤是 git 相關：主機的 ~/tpass 或 ~/tpass/tpass-registry 可能還沒 clone —— 見 docs/ONBOARDING.md §5。");
     process.exit(r.status);
   }
   console.log("✅ 部署完成");

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tpass —— tschool 生態系唯一的 ops 入口。
-// 服務清單 / port / 目錄的唯一真相 = services.json（scripts/lib/registry.mjs 載入）。
+// 服務清單 / port / 目錄的唯一真相 = 並排的 tpass-registry repo（scripts/lib/registry.mjs 載入）。
 // 不帶參數 = 互動選單（不用背指令）。
 import { createInterface } from "node:readline/promises";
 import { enabledServices, services } from "./lib/registry.mjs";
@@ -25,7 +25,7 @@ const HELP = `tpass —— tschool 平台開發/部署工具（不帶參數進�
   tpass logs <svc> [-f]      看主機 log（-f 跟隨）
 
 其他
-  tpass new [id]             登記新服務（寫 services.json + 印人工步驟清單）
+  tpass new [id]             登記新服務（寫 tpass-registry + 印人工步驟清單）
   tpass ui                   開本機管理儀表板（瀏覽器 GUI）
   tpass list                 列出註冊表`;
 

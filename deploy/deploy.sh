@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 伺服器上的部署腳本。放在 ~/tpass/deploy/（~/tpass = tpass-ops repo clone，各服務 repo 同層）。
-# 服務清單 / 目錄 / DB 策略全部來自 ../services.json（唯一真相），不得在此硬編碼。
+# 服務清單 / 目錄 / DB 策略全部來自 ../tpass-registry/services.json（唯一真相），不得在此硬編碼。
+# 註冊表是並排的 public repo，每次部署前先 pull——主機只認 tpass-registry main 的最新版。
 # 對指定服務： git pull →（鎖檔變動才）pnpm install --frozen-lockfile → prisma generate →
 #              pnpm run build → 依 db.strategy 套 schema → pm2 startOrReload（zero-downtime；新服務自動首啟）。
 # 用法： deploy.sh [<svc>|all]   （預設 all = services.json 中 deployed:true 者）
@@ -16,9 +17,23 @@ command -v pnpm >/dev/null 2>&1 || {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
-REG="$ROOT/services.json"
+REG_DIR="$ROOT/tpass-registry"
+REG="$REG_DIR/services.json"
 
-[ -f "$REG" ] || { echo "❌ 找不到 $REG（~/tpass 應該是 tpass-ops repo 的 clone；見 docs/ONBOARDING.md §5）" >&2; exit 1; }
+if [ ! -d "$REG_DIR/.git" ]; then
+  echo "❌ 找不到服務註冊表 $REG_DIR" >&2
+  echo "   註冊表是並排的 public repo，先 clone 一次：" >&2
+  echo "     git -C $ROOT clone https://github.com/YC815/tpass-registry.git" >&2
+  exit 1
+fi
+
+# 註冊表永遠吃 main 最新版：加服務 / 翻 deployed 只要 merge 進 tpass-registry，
+# 不必再改 ops、portal、auth 任何一行程式碼。
+echo "==================== registry ===================="
+git -C "$REG_DIR" pull --ff-only
+node "$REG_DIR/validate.mjs"
+
+[ -f "$REG" ] || { echo "❌ 找不到 $REG" >&2; exit 1; }
 
 # 從註冊表查欄位（node 一定在——主機本來就跑 Next）
 svc_dir()      { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.dir:''" "$1"; }
