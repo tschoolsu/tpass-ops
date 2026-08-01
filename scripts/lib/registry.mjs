@@ -29,7 +29,7 @@ function load() {
   if (!existsSync(file)) {
     console.error(`✗ 找不到服務註冊表 ${file}`);
     console.error(`  註冊表住在並排的 public repo，先 clone 一次：`);
-    console.error(`    git -C ${ROOT} clone https://github.com/YC815/tpass-registry.git`);
+    console.error(`    git -C ${ROOT} clone https://github.com/tschoolsu/tpass-registry.git`);
     process.exit(1);
   }
   let data;

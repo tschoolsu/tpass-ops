@@ -23,7 +23,7 @@ REG="$REG_DIR/services.json"
 if [ ! -d "$REG_DIR/.git" ]; then
   echo "❌ 找不到服務註冊表 $REG_DIR" >&2
   echo "   註冊表是並排的 public repo，先 clone 一次：" >&2
-  echo "     git -C $ROOT clone https://github.com/YC815/tpass-registry.git" >&2
+  echo "     git -C $ROOT clone https://github.com/tschoolsu/tpass-registry.git" >&2
   exit 1
 fi
 
