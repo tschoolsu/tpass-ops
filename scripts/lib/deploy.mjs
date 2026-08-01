@@ -25,10 +25,17 @@ function hostEnv() {
   return env;
 }
 
-export function ssh(remoteCmd, { capture = false } = {}) {
+// input 提供時經 stdin 餵給遠端指令（用來把整份 .env.local 寫回主機，值不進 argv）。
+export function ssh(remoteCmd, { capture = false, input } = {}) {
   const { DEPLOY_USER, DEPLOY_HOST } = hostEnv();
+  const stdio = input
+    ? ["pipe", capture ? "pipe" : "inherit", "inherit"]
+    : capture
+      ? ["ignore", "pipe", "inherit"]
+      : "inherit";
   const r = spawnSync("ssh", [`${DEPLOY_USER}@${DEPLOY_HOST}`, remoteCmd], {
-    stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
+    input,
+    stdio,
     encoding: "utf8",
   });
   return { status: r.status ?? 1, stdout: r.stdout ?? "" };

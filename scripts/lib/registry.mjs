@@ -79,6 +79,10 @@ export const prodUrl = (s) => `https://${s.subdomain}.${registry.domains.prod}`;
 export const repoDir = (s) => join(ROOT, s.dir);
 export const dbUrl = (s) => `postgresql://${s.db.user}@localhost:5432/${s.db.name}`;
 
+// 主機端服務根目錄（services.json 的 server.root，例：~/tpass）。遠端指令用，~ 由遠端 shell 展開。
+export const serverRoot = registry.server?.root ?? "~/tpass";
+export const remoteEnvPath = (s) => `${serverRoot}/${s.dir}/.env.local`;
+
 // 解析 [svc|all] 參數 → 服務陣列（all = enabled）
 export function resolveTarget(arg, { fallback = "all" } = {}) {
   const t = arg || fallback;

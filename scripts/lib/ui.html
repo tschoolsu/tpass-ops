@@ -54,6 +54,22 @@
   button:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 0 var(--fg); }
   .bDev { background: var(--primary); } .bCheck { background: var(--amber); }
   .bDeploy { background: var(--rose); } .bLogs { background: var(--accent); }
+  .bEnv { background: var(--violet); } .bDb { background: var(--amber); }
+  .envPanel {
+    margin-top: 12px; border: 2px solid var(--fg); border-radius: 10px; padding: 10px;
+    background: var(--bg); font-family: ui-monospace, "Geist Mono", monospace; font-size: 12px;
+  }
+  .envHead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; word-break: break-all; }
+  .envHead button { font-size: 11px; padding: 3px 8px; box-shadow: 2px 2px 0 0 var(--fg); }
+  .envRow { padding: 2px 0; word-break: break-all; line-height: 1.5; }
+  .envRow .k { font-weight: 700; }
+  .envRow .del { border: none; background: none; box-shadow: none; padding: 0 4px; cursor: pointer; }
+  .envSet { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .envSet input {
+    font: inherit; font-size: 12px; border: 2px solid var(--fg); border-radius: 8px; padding: 4px 8px;
+    background: var(--card);
+  }
+  .envSet input.k { width: 40%; } .envSet input.v { flex: 1; min-width: 90px; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 26px; }
   .toolbar button { background: var(--violet); }
   #out {
@@ -92,6 +108,8 @@
 const TOKEN = "__TOKEN__";
 const api = (p, opts) => fetch(p + (p.includes("?") ? "&" : "?") + "token=" + TOKEN, opts);
 let curJob = null, curSrc = null;
+const openEnv = new Set(); // 展開中的 env 面板（15s 刷新後要重開）
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 async function loadRegistry() {
   const r = await (await api("/api/registry")).json();
@@ -114,13 +132,65 @@ async function loadRegistry() {
         <button class="bDev" onclick="run(['dev','${s.id}'])">▶ dev</button>
         <button class="bCheck" onclick="run(['check','${s.id}'])">🧪 check</button>
         <button class="bLogs" onclick="run(['logs','${s.id}'])">📜 logs</button>
+        <button class="bEnv" onclick="toggleEnv('${s.id}')">🔧 env</button>
+        ${s.db ? `<button class="bDb" onclick="confirmRun(['db','create','${s.id}'],'在主機建立/確保 ${s.id} 的資料庫？（冪等，會寫入遠端 DATABASE_URL）')">🗄 建 DB</button>` : ""}
         ${s.deployed ? `<button class="bDeploy" onclick="confirmRun(['deploy','${s.id}'],'部署 ${s.id} 到正式主機？')">🚀 deploy</button>` : ""}
-      </div>`;
+      </div>
+      <div class="envPanel" id="env-${s.id}" style="display:none"></div>`;
     grid.appendChild(card);
   }
+  for (const id of openEnv) { const p = document.getElementById("env-" + id); if (p) { p.style.display = "block"; loadEnv(id, false); } }
 }
 
 function confirmRun(argv, msg) { if (window.confirm(msg)) run(argv); }
+
+function toggleEnv(id) {
+  const panel = document.getElementById("env-" + id);
+  if (panel.style.display !== "none") { panel.style.display = "none"; openEnv.delete(id); return; }
+  panel.style.display = "block";
+  openEnv.add(id);
+  loadEnv(id, false);
+}
+
+async function loadEnv(id, reveal) {
+  const panel = document.getElementById("env-" + id);
+  const r = await (await api("/api/env/" + id + (reveal ? "?reveal=1" : ""))).json();
+  if (r.error) { panel.innerHTML = "✗ " + escapeHtml(r.error); return; }
+  const rows = r.entries.map((e) =>
+    `<div class="envRow"><span class="k">${escapeHtml(e.key)}</span>=${escapeHtml(e.value)}` +
+    `<button class="del" title="移除" onclick="delEnv('${id}','${escapeHtml(e.key)}')">🗑</button></div>`
+  ).join("");
+  panel.innerHTML =
+    `<div class="envHead"><span>${escapeHtml(r.path)}</span>` +
+    `<button onclick="loadEnv('${id}',${!reveal})">${reveal ? "🙈 遮罩" : "👁 顯示密文"}</button></div>` +
+    (rows || "<i>（空或不存在）</i>") +
+    `<div class="envSet"><input class="k" id="ek-${id}" placeholder="KEY" />` +
+    `<input class="v" id="ev-${id}" placeholder="value" />` +
+    `<button onclick="saveEnv('${id}')">💾 設定</button></div>`;
+}
+
+async function saveEnv(id) {
+  const key = document.getElementById("ek-" + id).value.trim();
+  const value = document.getElementById("ev-" + id).value;
+  if (!key) return;
+  if (!window.confirm(`寫入主機 ${id} 的 .env.local：${key}=…？（套用需之後 deploy）`)) return;
+  const r = await (await api("/api/env/" + id, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  })).json();
+  if (r.error) { alert("✗ " + r.error); return; }
+  loadEnv(id, false);
+}
+
+async function delEnv(id, key) {
+  if (!window.confirm(`從主機 ${id} 的 .env.local 移除 ${key}？`)) return;
+  const r = await (await api("/api/env/" + id, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ unset: true, key }),
+  })).json();
+  if (r.error) { alert("✗ " + r.error); return; }
+  loadEnv(id, false);
+}
 
 async function run(argv) {
   const out = document.getElementById("out");
