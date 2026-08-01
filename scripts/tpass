@@ -26,7 +26,7 @@ const HELP = `tpass —— tschool 平台開發/部署工具（不帶參數進�
   tpass env get <svc>        看主機 .env.local（密文預設遮罩，--show 顯示）
   tpass env set <svc> K=V    改主機 .env.local（單鍵 upsert；套用需 deploy）
   tpass env unset <svc> K    移除主機 .env.local 的一個 key
-  tpass db create <svc>      在主機建 role+db + 寫入遠端 DATABASE_URL（需一次性授權，見 docs/DEPLOY.md）
+  tpass db create <svc>      在主機建 role+db + 寫入遠端 DATABASE_URL（需一次性授權，見 docs/ONBOARDING.md）
 
 其他
   tpass new [id]             登記新服務（寫 tpass-registry + 印人工步驟清單）

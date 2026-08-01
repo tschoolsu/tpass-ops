@@ -41,6 +41,10 @@
 | `tpass deploy <svc>` | `ssh <主機> 'cd ~/tpass && git pull --ff-only && ./deploy/deploy.sh <svc>'` |
 | `tpass logs <svc>` | `ssh <主機> 'pm2 logs <svc> --lines 100'` |
 | `tpass status` | 本機 port 探測 + `ssh <主機> 'pm2 jlist'` + 各 repo `HEAD` vs `origin/main` |
+| `tpass env get <svc>` | `ssh <主機> 'cat ~/tpass/<dir>/.env.local'`（密文預設遮罩，`--show` 顯示） |
+| `tpass env set <svc> K=V` | 單鍵 upsert 主機 `~/tpass/<dir>/.env.local`（值走 stdin，不進 argv） |
+| `tpass env unset <svc> K` | 移除主機 `.env.local` 的一個 key |
+| `tpass db create <svc>` | `ssh <主機> 'createuser / createdb'` + 寫入遠端 `DATABASE_URL`（見 §4.2） |
 | `tpass new <id>` | 寫一筆進 `tpass-registry/services.json` + 印出需要 root 的人工步驟（**PR 仍要自己開**） |
 | `tpass list` / `tpass ui` | 讀 `tpass-registry/services.json` 印出來 / 開瀏覽器儀表板 |
 
@@ -232,6 +236,52 @@ cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身吃最新 m
 
 build 失敗時舊版行程**不受影響**（reload 只在 build 成功之後才發生）。
 
+### 4.1 改主機的 env（不需 root）
+
+本機與主機的值本來就不同（正式網域、正式金鑰、正式 `DATABASE_URL`）。`.env.local` 是**部署帳號自己擁有**的檔（`~/tpass/<dir>/.env.local`），改它不需要 root：
+
+```bash
+tpass env get <svc>            # 看主機的值，密文預設遮罩
+tpass env get <svc> --show     # 顯示密文
+tpass env set <svc> KEY=VALUE  # 單鍵 upsert：只碰目標行，其餘含註解 byte 不動
+tpass env unset <svc> KEY      # 移除一個 key
+```
+
+改完**要 `tpass deploy <svc>` 才會套用**（Next 在 build/啟動時讀 env）。
+
+- 值走 **stdin**，不進 `argv`（主機上 `ps` 看不到）、不進 git、不回瀏覽器。
+- 寫入是原子的（tmp → mv），中斷不會留下半個檔。
+
+> [!IMPORTANT]
+> **值含空白時務必加引號。** `deploy.sh` 會用 shell `source` 匯入 `.env.local`，未加引號的空白會讓該行被當成指令執行，部署中止且錯誤訊息（`command not found`）指不到真正原因。
+> 2026-08-01 就因為 `AUTH_SUPERADMINS=a@x.com, b@y.com` 少了引號，auth 部署中斷過一次。
+
+等價原生指令：`ssh <主機> 'vi ~/tpass/<dir>/.env.local'`——`tpass env` 只是讓你不必進主機、且避免手滑改到別行。
+
+### 4.2 在主機建資料庫（一次性 root 授權後免 root）
+
+```bash
+tpass db create <svc>          # 建 role+db（冪等）、生成隨機密碼、寫進遠端 DATABASE_URL
+```
+
+只建**空庫** + 寫連線字串；schema 仍由 `tpass deploy` 的 `prisma migrate deploy` / `db push` 套用。
+
+**前提兩件**：
+
+1. 主機的 `~/tpass/<dir>` **已經 clone**（要把 `DATABASE_URL` 寫進該目錄的 `.env.local`，目錄不存在會直接失敗）。
+2. 部署帳號已取得建庫權——由 **root 在主機跑一次**（`<deploy_user>` ＝ `deploy/host.env` 的 `DEPLOY_USER`）：
+
+```bash
+sudo -u postgres psql -c "CREATE ROLE <deploy_user> LOGIN CREATEDB CREATEROLE;"
+# 確認 pg_hba.conf 有：
+#   local all all peer                              （socket，給部署帳號用）
+#   host  all all 127.0.0.1/32 scram-sha-256        （TCP，給 app 用）
+```
+
+授權後部署帳號經 peer auth 即有 `CREATEDB` / `CREATEROLE`（**非 superuser**，最小權限），之後建庫全自助。per-service role 另配隨機密碼供 app 走 TCP 連線，只寫進遠端 `.env.local`。
+
+> 這兩項也在 `tpass ui`：每張卡片有「🔧 env」面板與「🗄 建 DB」按鈕。
+
 ---
 
 ## 5. 主機拓樸
@@ -329,7 +379,10 @@ scripts/tpass logs form -f     # 跟隨
 | 本機登入後一直被踢回登入頁 | dev 指令少了 `NODE_TLS_REJECT_UNAUTHORIZED=0`，消費端後端抓不到 auth 的 JWKS（見 §0 的 ⚠️）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`。**主機上出現這症狀跟 TLS 無關**，去查 `iss` / `aud` |
 | `tpass deploy` 報 git 錯誤 | 主機 `~/tpass` 工作樹不乾淨（主機上不該手改檔案）。`scripts/ssh.sh 'git -C ~/tpass status'` 看 |
 | `tpass deploy` 健康檢查失敗 | `tpass logs <svc>` 看啟動錯誤；最常見是 env 缺值或 DB 連不上 |
-| 部署被擋，說 env 缺 key | 對照該 repo `.env.example` 補**主機上**的 `.env.local`（真相是 `src/config/*.ts` 的 REQUIRED） |
+| 部署被擋，說 env 缺 key | 對照該 repo `.env.example`，用 `tpass env set <svc> KEY=VALUE` 補**主機上**的 `.env.local`（真相是 `src/config/*.ts` 的 REQUIRED，見 §4.1） |
+| 部署時報 `command not found`，指向一個 email 或網址 | 主機 `.env.local` 裡某個值含空白卻沒加引號。`deploy.sh` 用 shell `source` 匯入，未加引號的空白會被當成指令（見 §4.1） |
+| `tpass db create` 連不上 postgres | 部署帳號尚未取得建庫權——由 root 跑一次 §4.2 的 `CREATE ROLE … LOGIN CREATEDB CREATEROLE` |
+| `tpass db create` 說主機目錄不存在 | 要先在主機 `git clone` repo 到 `~/tpass/<dir>`，`db create` 才有地方寫 `DATABASE_URL`（見 §4.2） |
 | 部署後 502 | `tpass logs <svc>` 看 pm2 有沒有活；或 nginx 反代的 port 與註冊表不一致 |
 | 服務登記了，大廳還是沒卡片 | 註冊表 merge 之後**沒有重新部署 portal**。auth / portal 是在 build 時把清單烤進去的 |
 | auth / portal 起不來，說讀不到註冊表 | `~/tpass/tpass-registry` 沒 clone。錯誤訊息裡有完整路徑與 clone 指令 |

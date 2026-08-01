@@ -124,7 +124,7 @@ export async function dbReset(id) {
 
 // 遠端建庫：同一 PG 實例開 role+db（冪等），生成密碼寫進遠端 .env.local 的 DATABASE_URL。
 // 免每次 root —— 前提是 deploy 帳號經 peer auth 對到有 CREATEDB/CREATEROLE 的 PG 角色
-// （一次性 root 授權見 docs/DEPLOY.md）。dbSetup 那套 SQL 原封搬過來，只是把本機 spawnSync 換成 ssh。
+// （一次性 root 授權見 docs/ONBOARDING.md）。dbSetup 那套 SQL 原封搬過來，只是把本機 spawnSync 換成 ssh。
 export function dbCreateRemote(id) {
   const s = byId(id);
   if (!s.db) {
@@ -134,7 +134,7 @@ export function dbCreateRemote(id) {
   // 目錄需先在主機 clone —— 否則沒地方寫 DATABASE_URL；先擋，避免建出「role/db 已建但 env 沒寫」的半套。
   const dir = `${serverRoot}/${s.dir}`;
   if (ssh(`test -d ${dir} && echo ok`, { capture: true }).stdout.trim() !== "ok") {
-    console.error(`✗ 主機目錄 ${dir} 不存在——請先在主機 git clone repo 再建 DB（見 docs/SERVICE-TEMPLATE.md §5）`);
+    console.error(`✗ 主機目錄 ${dir} 不存在——請先在主機 git clone repo 再建 DB（見 docs/NEW-SERVICE.md〈部署〉）`);
     process.exit(2);
   }
   const { user, name } = s.db;
@@ -145,7 +145,7 @@ export function dbCreateRemote(id) {
   const roleQ = q(`SELECT 1 FROM pg_roles WHERE rolname='${user}'`);
   if (roleQ.status !== 0) {
     console.error(`✗ 無法查詢主機 postgres（ssh/psql exit ${roleQ.status}）。`);
-    console.error(`  請先由 root 授權 deploy 帳號：sudo -u postgres psql -c "CREATE ROLE <deploy_user> LOGIN CREATEDB CREATEROLE;"（見 docs/DEPLOY.md）`);
+    console.error(`  請先由 root 授權 deploy 帳號：sudo -u postgres psql -c "CREATE ROLE <deploy_user> LOGIN CREATEDB CREATEROLE;"（見 docs/ONBOARDING.md）`);
     process.exit(1);
   }
   const roleExists = roleQ.stdout.trim();
