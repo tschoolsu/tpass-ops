@@ -70,7 +70,7 @@
 
 ## 1. 服務清單（`tpass-registry` = 唯一真相）
 
-服務清單住在**並排的公開 repo** `YC815/tpass-registry` 的 `services.json`。從它派生的東西有四樣：
+服務清單住在**並排的公開 repo** `tschoolsu/tpass-registry` 的 `services.json`。從它派生的東西有四樣：
 
 | 消費者 | 派生出什麼 |
 | --- | --- |
@@ -86,10 +86,14 @@
 
 **每個服務是一個獨立的 git repo**（不是 monorepo）。頂層 `tschool/` 本身也是一個 repo（`tpass-ops`），只追蹤維運層：`scripts/`、`deploy/`、`docs/`。
 
-git repos（全部在 GitHub 的 `YC815` 底下）：
+git repos（全部在 GitHub 的 **`tschoolsu` 組織**底下，2026-08-01 核對）：
 
-- **public**：`tpass-registry`（服務註冊表，部員 fork + PR 的地方）
-- **private**：`tpass-ops`（頂層）、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals`、`tpass-vote`、`tpass-directory`（已封存）
+- **private**：`tpass-ops`（頂層）——**唯一一個私有的**
+- **public**：`tpass-registry`（服務註冊表，部員 fork + PR 的地方）、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals`
+- **還沒有 GitHub repo**：`tpass-vote`（只在本機，有 commit 但無 remote）、`tpass-directory`（本機封存）
+
+> ⚠️ 五個服務 repo 是 **public**。若這不是刻意的，要儘早改——公開的是原始碼與 `.env.example`，
+> 真值都在各機器的 `.env.local`（不進 git），但公開範圍應該是有意識的決定，不是預設值。
 
 > 🚫 **鐵律**：頂層 ops repo 絕對不要 `git add` 服務子 repo、`tpass-registry/`、`deploy/host.env`、`certs/`。機密與服務程式碼都不進 ops repo。
 >

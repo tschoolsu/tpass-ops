@@ -51,7 +51,7 @@
 
 T-Pass 是 TSchool 平台的單一登入機制。師生以學校 Google 帳號登入一次，即可通行所有子服務。其架構遵循一項核心原則：**auth 負責發證，各服務負責驗證；服務不持有、也不需要任何私鑰。**
 
-本指南是自給自足的：所有程式碼、設定、指令皆完整寫在文件中，依序操作即可完成串接。新服務只需要自己的 repo，加上對公開的 `YC815/tpass-registry` 開一個 PR——不需要存取 ops repo，也不需要任何自製工具，文件中使用的皆為原生 `git` / `pnpm` / `ssh` 指令。
+本指南是自給自足的：所有程式碼、設定、指令皆完整寫在文件中，依序操作即可完成串接。新服務只需要自己的 repo，加上對公開的 `tschoolsu/tpass-registry` 開一個 PR——不需要存取 ops repo，也不需要任何自製工具，文件中使用的皆為原生 `git` / `pnpm` / `ssh` 指令。
 
 > [!IMPORTANT]
 > 套件管理一律使用 pnpm，鎖檔為 `pnpm-lock.yaml`。混用 npm 或 yarn 會產生第二份鎖檔，導致部署失敗。
@@ -127,7 +127,7 @@ mkdir -p ~/tpass && cd ~/tpass
 
 ### 服務註冊
 
-**整個註冊只有這一步：對 `YC815/tpass-registry` 開一個 PR，在 `services.json` 加一個物件。**
+**整個註冊只有這一步：對 `tschoolsu/tpass-registry` 開一個 PR，在 `services.json` 加一個物件。**
 
 這個 repo 是公開的，任何人都能 fork + PR，不需要事先被加成 collaborator。merge 之後：
 
@@ -139,7 +139,7 @@ mkdir -p ~/tpass && cd ~/tpass
 
 ```bash
 cd ~/tpass
-gh repo fork YC815/tpass-registry --clone      # 或到 GitHub 網頁按 Fork 再 git clone
+gh repo fork tschoolsu/tpass-registry --clone      # 或到 GitHub 網頁按 Fork 再 git clone
 cd tpass-registry
 git checkout -b add-lost
 ```
@@ -200,12 +200,12 @@ gh pr create --fill
 cd ~/tpass
 pnpm create next-app@latest tpass-lost --typescript --eslint --app --src-dir --tailwind --use-pnpm
 cd tpass-lost
-gh repo create YC815/tpass-lost --private --source=. --push
+gh repo create tschoolsu/tpass-lost --private --source=. --push
 ```
 
 > [!NOTE]
 > repo 名稱請與註冊表那筆的 `dir` 一致（`tpass-lost`）——主機的部署腳本是照 `dir` 找目錄的。
-> 沒有 `YC815` 組織的建立權限就開在自己帳號下，再請維運轉移。
+> 沒有 `tschoolsu` 組織的建立權限就開在自己帳號下，再請維運轉移。
 
 repo 結構如下：
 
@@ -746,7 +746,7 @@ mkcert -cert-file cert.pem -key-file key.pem \
 
 ```bash
 cd ~/tpass                                             # 與 tpass-registry 同一層
-git clone https://github.com/YC815/tpass-auth.git
+git clone https://github.com/tschoolsu/tpass-auth.git
 cd tpass-auth
 pnpm install
 node scripts/gen-keys.mjs          # 產一組「你自己的」dev EdDSA 金鑰，把印出的兩行貼進下面
@@ -1001,7 +1001,7 @@ callback 收到的 token，解開後結構如下：
 
 ## 參考：services.json 欄位
 
-`YC815/tpass-registry` 的 `services.json` 是服務清單的唯一真相：auth 的發證白名單、portal 的大廳卡片、pm2 設定與部署腳本全部從此派生。不應在其他位置另行硬編碼服務清單、port、目錄名或網域。
+`tschoolsu/tpass-registry` 的 `services.json` 是服務清單的唯一真相：auth 的發證白名單、portal 的大廳卡片、pm2 設定與部署腳本全部從此派生。不應在其他位置另行硬編碼服務清單、port、目錄名或網域。
 
 ```jsonc
 {
