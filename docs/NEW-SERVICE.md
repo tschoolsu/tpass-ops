@@ -14,6 +14,7 @@
 - [簡介](#簡介)
 - [運作原理](#運作原理)
 - [事前準備](#事前準備)
+  - [工作目錄](#工作目錄)
   - [服務註冊](#服務註冊)
 - [專案結構](#專案結構)
 - [整合登入](#整合登入)
@@ -107,6 +108,23 @@ T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負
 
 以下以 `lost`（遺失物）、port `3007` 為範例，實作時請替換為實際服務 id 與 port。
 
+### 工作目錄
+
+先決定一個資料夾放所有 T-Pass 的 repo。**底下的 repo 必須並排**——auth 與 portal 都是靠 `../tpass-registry/services.json` 這條相對路徑找註冊表的，少一層或多一層都會找不到：
+
+```
+~/tpass/                 ← 資料夾名稱隨你，主機上叫 ~/tpass
+├── tpass-registry/      ← 服務註冊表（你 fork 的那份，下一步 clone）
+├── tpass-auth/          ← 本機發證端（〈本機開發〉會 clone）
+└── tpass-lost/          ← 你的服務
+```
+
+```bash
+mkdir -p ~/tpass && cd ~/tpass
+```
+
+以下所有 `git clone` 都在這個資料夾底下執行。
+
 ### 服務註冊
 
 **整個註冊只有這一步：對 `YC815/tpass-registry` 開一個 PR，在 `services.json` 加一個物件。**
@@ -120,6 +138,7 @@ T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負
 除此之外**不需要改任何其他 repo 的程式碼**——不必碰 portal，也不必碰 auth。
 
 ```bash
+cd ~/tpass
 gh repo fork YC815/tpass-registry --clone      # 或到 GitHub 網頁按 Fork 再 git clone
 cd tpass-registry
 git checkout -b add-lost
@@ -160,12 +179,33 @@ gh pr create --fill
 > `https://lost.lvh.me:3007`（本機）或 `https://lost.tschoolsu.org`（正式）。
 > 這也是為什麼你的程式碼裡**永遠不該寫死網域**。
 
+> [!IMPORTANT]
+> **不用等 PR merge 就能開始開發。** 本機 auth 讀的是你硬碟上這份 `~/tpass/tpass-registry/services.json`
+> ——你在 `add-lost` 分支上加的那一筆立刻生效，本機登入馬上能測。
+> merge 只影響**正式站**：merge 之前，正式站的 auth 不會認得你的服務。
+>
+> 所以整份文件從頭到尾**只 clone 這一份 registry**（你的 fork）。不要再 clone 一份上游的，
+> 那份沒有你的服務，本機 auth 會拒絕為你發證。
+
 ## 專案結構
 
 服務一律採用 **Next.js 16 + React 19**（與生態系其他服務一致）。
 
 > [!WARNING]
 > Next 16 存在破壞性變更，其 API 可能與既有認知不同。撰寫程式碼前請先參閱 `node_modules/next/dist/docs/`。
+
+在〈工作目錄〉那一層建立專案，並開一個 GitHub repo（上線時主機會從這裡 clone）：
+
+```bash
+cd ~/tpass
+pnpm create next-app@latest tpass-lost --typescript --eslint --app --src-dir --tailwind --use-pnpm
+cd tpass-lost
+gh repo create YC815/tpass-lost --private --source=. --push
+```
+
+> [!NOTE]
+> repo 名稱請與註冊表那筆的 `dir` 一致（`tpass-lost`）——主機的部署腳本是照 `dir` 找目錄的。
+> 沒有 `YC815` 組織的建立權限就開在自己帳號下，再請維運轉移。
 
 repo 結構如下：
 
@@ -188,6 +228,10 @@ tpass-lost/
 ```bash
 pnpm add jose
 ```
+
+> [!NOTE]
+> 範例裡的 `import "server-only"` 不需要另外安裝，Next 內建解析——它的作用是讓「這個檔被 client
+> component 引用到」變成 build error，避免驗章邏輯或 env 不小心被打包進瀏覽器。
 
 以下範例將 `lost` / `LOST` 替換為實際服務 id 即可使用。
 
@@ -698,11 +742,11 @@ mkcert -cert-file cert.pem -key-file key.pem \
 
 ### 啟動本機 auth
 
-此步驟僅需執行一次。**auth 與註冊表必須 clone 在同一層**——auth 會讀 `../tpass-registry/services.json` 決定可以為哪些服務發證：
+此步驟僅需執行一次。auth 要與 `tpass-registry` **並排**（見〈事前準備〉「工作目錄」）——它會讀 `../tpass-registry/services.json` 決定可以為哪些服務發證，而那份就是你在〈服務註冊〉clone 的 fork，已經含有你的服務：
 
 ```bash
+cd ~/tpass                                             # 與 tpass-registry 同一層
 git clone https://github.com/YC815/tpass-auth.git
-git clone https://github.com/YC815/tpass-registry.git   # ★ 與 tpass-auth 同一層
 cd tpass-auth
 pnpm install
 node scripts/gen-keys.mjs          # 產一組「你自己的」dev EdDSA 金鑰，把印出的兩行貼進下面
@@ -738,8 +782,8 @@ AUTH_SUPERADMINS=<你的學校信箱>                   # 生態總管，恆為�
 
 > [!NOTE]
 > **服務白名單不在這裡**。auth 可以為哪些服務發證，完全由 `../tpass-registry/services.json` 決定
-> ——你在〈事前準備〉「服務註冊」加的那一筆，把 registry clone 到同一層就會生效，
-> 本機不需要另外設定。
+> ——就是你在〈服務註冊〉fork 下來的那份，你加的那筆已經在裡面，本機不需要另外設定。
+> 改了那個檔要**重啟 auth** 才生效（清單在啟動時讀進來）。
 
 套用資料庫 schema（Prisma CLI 只讀 `.env`，所以先把 `.env.local` 匯進環境）：
 
@@ -844,10 +888,17 @@ pnpm exec tsc --noEmit
 | 2 | **[root]** | nginx server block（反向代理到 `127.0.0.1:3007`）+ `certbot` 簽 TLS 憑證 |
 | 3 | 你 | `curl` 直連確認 200 → **切回橘雲** |
 | 4 | **[root]** | 有資料庫的話：建 `t_lost` role + database，把 `DATABASE_URL` 給你 |
-| 5 | 你 | 主機上 `git clone` 你的 repo 到 `~/tpass/tpass-lost`，寫 `.env.local`（正式網域、**沒有 port**） |
-| 6 | 你 | 部署 `lost`（見〈部署指令〉），跑到通為止 |
-| 7 | 你 | registry PR：把 `lost` 的 `deployed` 改成 `true` → merge → 重新部署 `auth` 與 `portal` |
+| 5 | 你 | **registry PR②：把 `lost` 的 `deployed` 改成 `true` → merge** |
+| 6 | 你 | 主機上 `git clone` 你的 repo 到 `~/tpass/tpass-lost`，寫 `.env.local`（正式網域、**沒有 port**） |
+| 7 | 你 | 部署 `lost` → `auth` → `portal`（見〈部署指令〉） |
 | 8 | 你 | 瀏覽器真人走一次登入，跑一遍〈本機開發〉「驗收清單」（把 `lvh.me:3007` 換成正式網域） |
+
+> [!IMPORTANT]
+> **第 5 步必須在第 7 步之前。** pm2 的程序清單是從註冊表裡 `deployed: true` 的服務產生的，
+> 還是 `false` 的話部署腳本找不到你的服務、起不起來。
+>
+> 也因此第 5、6 步要連著做完：`deployed` 翻成 `true` 之後、你的 repo 還沒 clone 到主機之前，
+> 若有人剛好跑 `./deploy/deploy.sh all` 會在你的服務上失敗（找不到目錄）。這個空窗越短越好。
 
 > [!NOTE]
 > **灰雲 / 橘雲為何需要來回切換？** Let's Encrypt 簽發憑證時的驗證請求須直接抵達主機，Cloudflare 橘雲代理會攔截該請求，導致憑證簽發失敗。因此流程為：先灰雲 → 簽發完成 → 再切橘雲（橘雲可隱藏源站 IP、抵禦攻擊、提供快取）。
@@ -856,20 +907,19 @@ pnpm exec tsc --noEmit
 
 主機上已備有 `deploy.sh`。針對指定服務，此腳本會依序執行：**拉取最新註冊表**（`tpass-registry`）→ **env 必填檢查**（缺 key 於 build 前即擋下）→ `git pull` → 視需要 `pnpm install --frozen-lockfile` → `prisma generate` → `pnpm build` → 套用 DB schema → `pm2` zero-downtime reload → **健康檢查**（打服務所在 port，30 秒內未收到健康回應即視為失敗）。
 
+三個服務都要部署，**照這個順序**：
+
 ```bash
 ssh <帳號>@<主機>                     # 位址與帳號跟維運要。★ 絕不寫進任何 repo / commit / PR
 
 cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身）；註冊表由 deploy.sh 自己拉
 
-./deploy/deploy.sh lost               # 你的服務首次啟動
+./deploy/deploy.sh lost               # ① 你的服務首次啟動
+./deploy/deploy.sh auth               # ② 發證白名單納入 lost（否則使用者會被導去 /service-error）
+./deploy/deploy.sh portal             # ③ 大廳卡片出現
 ```
 
-**你的 registry PR merge 之後，還要重新部署 auth 與 portal** ——它們是在 build 時把註冊表烤進去的，不重新部署就不會知道有你這號人物：
-
-```bash
-./deploy/deploy.sh auth               # ① 發證白名單納入 lost（否則使用者會被導去 /service-error）
-./deploy/deploy.sh portal             # ② 大廳卡片出現（需要 deployed 已翻 true）
-```
+②③ 不能省略：auth 與 portal 是在 **build 時**把註冊表烤進去的，不重新部署就不會知道有你這號人物。
 
 查看狀態與 log（皆於主機上執行）：
 
@@ -897,6 +947,7 @@ pm2 logs lost --lines 100  # 你的服務的錯誤
 | 登入一段時間後失效 | 正常現象，per-service token 壽命＝auth 端 `JWT_TTL_SECONDS`（建議 45 分鐘）；重新走一次登入會自動換到新票 |
 | 服務一啟動就報「缺少必填環境變數」 | 對照 `src/config/lost.ts` 的 `REQUIRED` 陣列補齊 `.env.local`（該陣列即必填清單的唯一真相） |
 | 部署被擋，說 env 缺 key | 同上，但須補齊的是**主機上**的 `.env.local`。`deploy.sh` 於 build 前即擋下，此為刻意設計 |
+| 首次部署你的服務，pm2 沒起來 / 健康檢查失敗 | 註冊表裡 `deployed` 還是 `false`。pm2 的程序清單由這個欄位產生，翻成 `true` 並 merge 後再部署（〈部署〉第 5 步） |
 | 上線了，但 **portal 首頁看不到你的卡片** | 依序確認三件事：① registry 裡你那筆有 `portal` 區塊；② `deployed` 已翻成 `true`；③ portal 在那之後**重新部署過**（卡片是 build 時烤進去的） |
 | auth 或 portal 一啟動就報「讀不到服務註冊表」 | `tpass-registry` 沒 clone 在它的上一層。錯誤訊息裡有它試過的完整路徑與 clone 指令 |
 | portal 報「portal.icon 不在圖示白名單裡」 | registry 用了 portal 沒登記的 lucide 圖示。錯誤訊息會印出可用清單；要新增就在 `tpass-portal/src/config/icons.ts` 加一行 |
@@ -965,7 +1016,8 @@ callback 收到的 token，解開後結構如下：
     "strategy": "migrate"    // migrate = 有 migrations 歷史（標準做法）；push 僅限原型
   },
   "enabled": true,           // false = 工具與發證白名單全部跳過（封存用）
-  "deployed": false,         // true = 納入部署，卡片才會出現。首次上線成功後才翻 true
+  "deployed": false,         // 產生 pm2 程序清單、決定卡片出不出現。登記時填 false 佔位，
+                             // 主機前置備妥、要真正上線時再開一個 PR 翻 true（見〈部署〉第 5 步）
   "portal": {                // 選填。沒有這塊 = 不進大廳（純後端服務）
     "label": "遺失物",        // 卡片顯示名
     "icon": "Search",        // lucide 圖示的 PascalCase 名（見 lucide.dev/icons）
