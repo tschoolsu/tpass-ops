@@ -33,9 +33,10 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
 | `docs/` | ops 文檔（**只有三份**） | — | NEW-SERVICE（開新服務＋串登入＋上線）/ ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。 |
 
-> **git repos**（全在 GitHub `YC815` 底下）：**public** 只有 `tpass-registry`（服務註冊表）；
-> **private** 有 `tpass-ops`（＝頂層本身）、`tpass-auth`、`tpass-portal`、`tpass-form`、
-> `tpass-cross_grade_messages`、`tpass-appeals`、`tpass-vote`、`tpass-directory`（封存）。
+> **git repos**（全在 GitHub **`tschoolsu` 組織**底下，2026-08-01 核對）：
+> **private 只有 `tpass-ops`**（＝頂層本身）；`tpass-registry`、`tpass-auth`、`tpass-portal`、
+> `tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals` 都是 **public**。
+> `tpass-vote` 與 `tpass-directory`（封存）**尚未有 GitHub repo**，只存在於本機。
 > 主機 `~/tpass` 是 `tpass-ops` 的 clone，其餘 repo 並排 clone 其下——**本機與主機佈局同構**，
 > auth / portal 就靠 `../tpass-registry/services.json` 這條相對路徑找註冊表。
 
@@ -132,7 +133,7 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
 ## 6. 本機跑起來（詳見 `docs/ONBOARDING.md`）
 
 ```bash
-git clone https://github.com/YC815/tpass-registry.git   # 一次性：註冊表必須並排存在，否則 auth/portal 起不來
+git clone https://github.com/tschoolsu/tpass-registry.git   # 一次性：註冊表必須並排存在，否則 auth/portal 起不來
 scripts/tpass setup    # 一次性：mkcert + pnpm install + 金鑰 + DB（冪等）
 scripts/tpass dev      # 日常：全服務 HTTPS + HMR（SSO 全流程可測）
 scripts/tpass check    # push 前：lint + tsc
