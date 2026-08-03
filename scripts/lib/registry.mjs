@@ -60,6 +60,11 @@ export const registry = load();
 export const services = registry.services;
 export const issuerId = registry.issuer;
 
+// 主機（不是本機）的路徑約定，唯一真相在註冊表的 server 區塊。
+// 這些字串只會被丟進 ssh 的遠端 shell，所以 `~/…` 保持原樣——由遠端 shell 展開。
+export const hostOpsRoot = registry.server?.opsRoot ?? "~/tpass";
+export const hostServicesRoot = registry.server?.servicesRoot ?? hostOpsRoot;
+
 export function byId(id) {
   const s = services.find((x) => x.id === id);
   if (!s) {

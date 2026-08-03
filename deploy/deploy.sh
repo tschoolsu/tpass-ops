@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 伺服器上的部署腳本。放在 ~/tpass/deploy/（~/tpass = tpass-ops repo clone，各服務 repo 同層）。
+# 伺服器上的部署腳本。放在 ~/tpass/deploy/（~/tpass = tpass-ops repo clone，註冊表與它同層）。
+# 各服務 repo 住 registry 的 server.servicesRoot 底下（＝ /home/service/<dir>，一個服務一層）。
 # 服務清單 / 目錄 / DB 策略全部來自 ../tpass-registry/services.json（唯一真相），不得在此硬編碼。
 # 註冊表是並排的 public repo，每次部署前先 pull——主機只認 tpass-registry main 的最新版。
 # 對指定服務： git pull →（鎖檔變動才）pnpm install --frozen-lockfile → prisma generate →
@@ -34,6 +35,18 @@ git -C "$REG_DIR" pull --ff-only
 node "$REG_DIR/validate.mjs"
 
 [ -f "$REG" ] || { echo "❌ 找不到 $REG" >&2; exit 1; }
+
+# 服務 repo 的家（registry 的 server.servicesRoot；沒宣告就退回舊佈局＝與 ops repo 同層）。
+SVC_ROOT="$(node -p "
+const r = require('$REG');
+const p = (r.server && r.server.servicesRoot) || '';
+p.startsWith('~/') ? require('path').join(require('os').homedir(), p.slice(2)) : (p || '$ROOT')
+")"
+[ -d "$SVC_ROOT" ] || { echo "❌ 服務根目錄 $SVC_ROOT 不存在（registry 的 server.servicesRoot）" >&2; exit 1; }
+
+# 主機上服務不與註冊表並排，`../tpass-registry` 這條相對路徑不成立 → 直接把絕對路徑餵給
+# build（pnpm run build 會把服務清單烤進去）。runtime 那份由 ecosystem.config.js 的 env 注入。
+export TPASS_REGISTRY_PATH="$REG"
 
 # 從註冊表查欄位（node 一定在——主機本來就跑 Next）
 svc_dir()      { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.dir:''" "$1"; }
@@ -110,7 +123,12 @@ deploy_one() {
     echo "❌ services.json 裡沒有服務「$s」" >&2
     exit 2
   fi
-  dir="$ROOT/$rel"
+  dir="$SVC_ROOT/$rel"
+  if [ ! -d "$dir/.git" ]; then
+    echo "❌ 找不到 $s 的 repo：$dir" >&2
+    echo "   服務 repo 一律 clone 在 $SVC_ROOT 底下，一個服務一層（見 docs/ONBOARDING.md §5）。" >&2
+    exit 1
+  fi
   echo "==================== deploy $s ($dir) ===================="
   cd "$dir"
 
@@ -180,7 +198,18 @@ deploy_one() {
     echo "   pm2 程序還掛在舊 script 路徑（.bin/next）→ delete + start（一次性重建）"
     pm2 delete "$s"
   fi
-  pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.js" --only "$s"
+  # reload 不會搬 cwd：程序還跑在舊目錄（例：搬去 $SVC_ROOT 之前的 ~/tpass/<dir>）時，
+  # 只 reload 會安靜地繼續跑舊路徑的 build。cwd 不符就 delete + start 重建。
+  cur_cwd="$(pm2 jlist 2>/dev/null | node -e "
+let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+  try { const a=JSON.parse(d).find(p=>p.name===process.argv[1]); console.log(a?a.pm2_env.pm_cwd:''); }
+  catch { console.log(''); }
+})" "$s" || true)"
+  if [ -n "$cur_cwd" ] && [ "$cur_cwd" != "$dir" ]; then
+    echo "   pm2 程序的 cwd 是 $cur_cwd，應為 $dir → delete + start（重建）"
+    pm2 delete "$s"
+  fi
+  pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.js" --only "$s" --update-env
   health_check "$s" "$(svc_port "$s")"
   echo "   ✅ $s 部署完成"
 }
