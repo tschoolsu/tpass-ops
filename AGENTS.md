@@ -37,8 +37,13 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 > **private 只有 `tpass-ops`**（＝頂層本身）；`tpass-registry`、`tpass-auth`、`tpass-portal`、
 > `tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals` 都是 **public**。
 > `tpass-vote` 與 `tpass-directory`（封存）**尚未有 GitHub repo**，只存在於本機。
-> 主機 `~/tpass` 是 `tpass-ops` 的 clone，其餘 repo 並排 clone 其下——**本機與主機佈局同構**，
-> auth / portal 就靠 `../tpass-registry/services.json` 這條相對路徑找註冊表。
+> **本機**：全部並排在同一層（`tpass-registry` 與各服務同層），auth / portal 靠
+> `../tpass-registry/services.json` 這條相對路徑找註冊表。
+> **主機**（2026-08-03 起分岔）：ops repo + `tpass-registry` 在 `~/tpass`，**各服務 repo 一律在
+> `/home/service/<dir>`，一個服務一層，那層不放別的東西**。主機上相對路徑不成立，改由 ops 層注入
+> 絕對路徑 `TPASS_REGISTRY_PATH`（`ecosystem.config.js` 的 env 管 runtime、`deploy.sh` 的 export 管 build），
+> 服務程式碼與 `.env.local` 都不必為此改動。兩條路徑的真相＝`tpass-registry/services.json` 的
+> `server.opsRoot` / `server.servicesRoot`，**腳本裡不得寫死**。
 
 > ⚠️ 每個服務子專案各有自己的 `.git`。頂層 `tschool/` 是獨立的 **`tpass-ops`** git repo，
 > 只追蹤 ops 層（`scripts/`、`deploy/`、`docs/`、這些 md）。

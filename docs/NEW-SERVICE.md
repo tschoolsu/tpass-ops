@@ -113,11 +113,14 @@ T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負
 先決定一個資料夾放所有 T-Pass 的 repo。**底下的 repo 必須並排**——auth 與 portal 都是靠 `../tpass-registry/services.json` 這條相對路徑找註冊表的，少一層或多一層都會找不到：
 
 ```
-~/tpass/                 ← 資料夾名稱隨你，主機上叫 ~/tpass
+~/tpass/                 ← 資料夾名稱隨你（這是你自己電腦上的佈局）
 ├── tpass-registry/      ← 服務註冊表（你 fork 的那份，下一步 clone）
 ├── tpass-auth/          ← 本機發證端（〈本機開發〉會 clone）
 └── tpass-lost/          ← 你的服務
 ```
+
+> 主機上不是這樣擺：服務 repo 住 `/home/service/<dir>`、ops 與註冊表住 `~/tpass`，
+> 註冊表位置由部署腳本注入。**那是維運的事，你本機照上面並排就對了**（見〈部署〉第 6 步）。
 
 ```bash
 mkdir -p ~/tpass && cd ~/tpass
@@ -889,7 +892,7 @@ pnpm exec tsc --noEmit
 | 3 | 你 | `curl` 直連確認 200 → **切回橘雲** |
 | 4 | **[root]** | 有資料庫的話：建 `t_lost` role + database，把 `DATABASE_URL` 給你 |
 | 5 | 你 | **registry PR②：把 `lost` 的 `deployed` 改成 `true` → merge** |
-| 6 | 你 | 主機上 `git clone` 你的 repo 到 `~/tpass/tpass-lost`，寫 `.env.local`（正式網域、**沒有 port**） |
+| 6 | 你 | 主機上 `git clone` 你的 repo 到 **`/home/service/tpass-lost`**（服務 repo 一律住這層，一個服務一層），寫 `.env.local`（正式網域、**沒有 port**） |
 | 7 | 你 | 部署 `lost` → `auth` → `portal`（見〈部署指令〉） |
 | 8 | 你 | 瀏覽器真人走一次登入，跑一遍〈本機開發〉「驗收清單」（把 `lvh.me:3007` 換成正式網域） |
 
@@ -911,6 +914,8 @@ pnpm exec tsc --noEmit
 
 ```bash
 ssh <帳號>@<主機>                     # 位址與帳號跟維運要。★ 絕不寫進任何 repo / commit / PR
+
+git clone <你的 repo> /home/service/tpass-lost   # 第 6 步；服務 repo 的家（ops repo 在 ~/tpass，兩層分開）
 
 cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身）；註冊表由 deploy.sh 自己拉
 

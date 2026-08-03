@@ -4,7 +4,16 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createConnection } from "node:net";
-import { OPS_ROOT, ROOT, byId, deployedServices, devUrl, services } from "./registry.mjs";
+import {
+  OPS_ROOT,
+  ROOT,
+  byId,
+  deployedServices,
+  devUrl,
+  hostOpsRoot,
+  hostServicesRoot,
+  services,
+} from "./registry.mjs";
 
 function hostEnv() {
   const candidates = [join(ROOT, "deploy", "host.env"), join(OPS_ROOT, "deploy", "host.env")];
@@ -48,10 +57,12 @@ export function deploy(target = "all") {
   // ops repo 先自我更新（deploy.sh / ecosystem 吃最新 main），再執行 deploy.sh
   // ——自我更新發生在腳本被 bash 載入之前，避免改到執行中的檔案。
   // 註冊表（tpass-registry）由 deploy.sh 自己 pull，不在這裡處理。
-  const r = ssh(`cd ~/tpass && git pull --ff-only && ./deploy/deploy.sh ${target}`);
+  const r = ssh(`cd ${hostOpsRoot} && git pull --ff-only && ./deploy/deploy.sh ${target}`);
   if (r.status !== 0) {
     console.error(`\n✗ 部署失敗（exit ${r.status}）。`);
-    console.error("  若錯誤是 git 相關：主機的 ~/tpass 或 ~/tpass/tpass-registry 可能還沒 clone —— 見 docs/ONBOARDING.md §5。");
+    console.error(
+      `  若錯誤是 git 相關：主機的 ${hostOpsRoot}、${hostOpsRoot}/tpass-registry 或 ${hostServicesRoot}/<dir> 可能還沒 clone —— 見 docs/ONBOARDING.md §5。`,
+    );
     process.exit(r.status);
   }
   console.log("✅ 部署完成");
@@ -104,7 +115,7 @@ export async function status() {
   const script = deployedServices()
     .map(
       (s) =>
-        `cd ~/tpass/${s.dir} 2>/dev/null && { git fetch -q origin main 2>/dev/null; ` +
+        `cd ${hostServicesRoot}/${s.dir} 2>/dev/null && { git fetch -q origin main 2>/dev/null; ` +
         `echo "${s.id} $(git rev-parse --short HEAD) $(git rev-list --count HEAD..origin/main 2>/dev/null || echo '?')"; }`,
     )
     .join("; ");

@@ -5,7 +5,7 @@
 // auth 的發證白名單與 portal 的大廳卡片都是從那個 repo 的 main 派生的。
 import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { REGISTRY_DIR, REGISTRY_FILE, registry, services } from "./registry.mjs";
+import { REGISTRY_DIR, REGISTRY_FILE, hostServicesRoot, registry, services } from "./registry.mjs";
 import { run } from "./sh.mjs";
 import { setup } from "./build.mjs";
 
@@ -101,7 +101,7 @@ ${hasDb ? `
        sudo -u postgres psql -c "CREATE ROLE t_${id} LOGIN PASSWORD '<隨機強密碼>';"
        sudo -u postgres psql -c "CREATE DATABASE t_${id} OWNER t_${id};"
 ` : ""}
-5. 上線：主機 clone repo 到 ~/tpass/${dir}、填 .env.local（對照 src/config 的 REQUIRED），
+5. 上線：主機 clone repo 到 ${hostServicesRoot}/${dir}、填 .env.local（對照 src/config 的 REQUIRED），
    部署 ${id} 成功後，再開一個 registry PR 把 ${id} 的 deployed 翻成 true，
    然後重新部署 auth 與 portal（卡片才會出現在大廳）。
 ────────────────────────────────────────────────────────`);

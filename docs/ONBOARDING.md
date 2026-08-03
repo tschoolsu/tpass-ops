@@ -311,14 +311,26 @@ sudo -u postgres psql -c "CREATE ROLE <deploy_user> LOGIN CREATEDB CREATEROLE;"
 ### 主機目錄
 
 ```
-~/tpass/                    ← 就是 ops repo 的 clone
+~/tpass/                    ← ops repo 的 clone：只有 ops 層
 ├── deploy/{deploy.sh, ecosystem.config.js}
+├── scripts/  docs/
 ├── tpass-registry/         ← ★ 服務註冊表（public repo，並排 clone；deploy.sh 每次自己 pull）
-├── tpass-auth/  tpass-portal/  tpass-form/  …   ← 各服務 repo 並排 clone
+
+/home/service/              ← ★ 服務 repo 的家：一個服務一層，這層不放別的東西
+├── tpass-auth/
+├── tpass-portal/
+├── tpass-form/  tpass-cross_grade_messages/  tpass-appeals/  …
 ```
 
-> 佈局在**本機與主機完全同構**，這不是巧合：auth 與 portal 都用 `../tpass-registry/services.json`
-> 這條相對路徑找註冊表，靠的就是這個。少 clone 一個 `tpass-registry`，它們啟動時會直接報錯並印出 clone 指令。
+兩條路徑的真相都在註冊表的 `server` 區塊（`opsRoot` / `servicesRoot`），`deploy.sh` 與
+`ecosystem.config.js` 都從那裡讀——**不要在任何腳本裡寫死主機路徑**。
+
+> ⚠️ **主機與本機的佈局在這裡分岔**（2026-08-03 起）。本機仍是「全部並排在同一層」，所以
+> auth / portal 的 `../tpass-registry/services.json` 相對路徑照常成立；主機上服務不與註冊表
+> 並排，那條路徑不成立，改由 ops 層注入絕對路徑 `TPASS_REGISTRY_PATH`：
+> `ecosystem.config.js` 的 env 管 runtime、`deploy.sh` 的 export 管 build。
+> **服務程式碼與 `.env.local` 都不用寫這個 key**——但你若在主機上手動跑 `pnpm run build`，
+> 記得自己帶：`TPASS_REGISTRY_PATH=~/tpass/tpass-registry/services.json pnpm run build`。
 
 ### 進主機
 
@@ -385,7 +397,8 @@ scripts/tpass logs form -f     # 跟隨
 | `tpass db create` 說主機目錄不存在 | 要先在主機 `git clone` repo 到 `~/tpass/<dir>`，`db create` 才有地方寫 `DATABASE_URL`（見 §4.2） |
 | 部署後 502 | `tpass logs <svc>` 看 pm2 有沒有活；或 nginx 反代的 port 與註冊表不一致 |
 | 服務登記了，大廳還是沒卡片 | 註冊表 merge 之後**沒有重新部署 portal**。auth / portal 是在 build 時把清單烤進去的 |
-| auth / portal 起不來，說讀不到註冊表 | `~/tpass/tpass-registry` 沒 clone。錯誤訊息裡有完整路徑與 clone 指令 |
+| auth / portal 起不來，說讀不到註冊表 | 本機：`tpass-registry` 沒與服務並排 clone。主機：`~/tpass/tpass-registry` 沒 clone，或你手動跑 build 沒帶 `TPASS_REGISTRY_PATH`（正常部署由 `deploy.sh` / `ecosystem.config.js` 注入）。錯誤訊息裡有完整路徑 |
+| 部署完了，服務跑的還是舊 code | pm2 程序的 cwd 還指在舊目錄（例如搬去 `/home/service` 之前的路徑）。`deploy.sh` 會自己偵測 cwd 不符並 delete + start；手動查：`scripts/ssh.sh 'pm2 describe <id>'` 看 cwd |
 | 切橘雲後 5xx / 憑證錯 | 憑證還沒簽好就切橘雲了——回灰雲、簽好、再切 |
 | Postgres 沒起來 | `brew services start postgresql@17` |
 | `tpass db setup <svc>` 卡在 `prisma migrate dev`，說沒權限建資料庫 | 已知坑：`db.mjs` 建 role 時只給 `LOGIN`，沒給 `CREATEDB`。本機 `migrate dev` 會另外開一個 shadow database 來算 migration diff，需要這個權限；正式站部署用的是 `migrate deploy`，**不建 shadow db，不需要 `CREATEDB`**，所以主機不受影響。本機解法：`psql -d postgres -c "ALTER ROLE t_<id> CREATEDB"` 補一次，冪等，之後 `tpass db setup <svc>` 就會過 |
