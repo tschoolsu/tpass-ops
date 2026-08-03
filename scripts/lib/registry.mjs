@@ -50,7 +50,8 @@ function load() {
     }
   }
   for (const s of data.services) {
-    if (s.db && !["push", "migrate"].includes(s.db.strategy)) fail(`${s.id} 的 db.strategy 必須是 push 或 migrate`);
+    if (s.db && !["push", "migrate", "none"].includes(s.db.strategy))
+      fail(`${s.id} 的 db.strategy 必須是 push、migrate 或 none`);
   }
   if (!data.services.some((s) => s.id === data.issuer)) fail(`issuer「${data.issuer}」不在服務清單中`);
   return data;
@@ -89,9 +90,24 @@ export const dbUrl = (s) => `postgresql://${s.db.user}@localhost:5432/${s.db.nam
 export const serverRoot = hostServicesRoot;
 export const remoteEnvPath = (s) => `${hostServicesRoot}/${s.dir}/.env.local`;
 
-// 解析 [svc|all] 參數 → 服務陣列（all = enabled）
+// 註冊表列了、但這台機器沒 clone 的服務是常態（別人的 repo、你沒在碰的服務）。
+// 本機指令（dev / check / build / setup）一律只對「本機真的有那個目錄」的服務動作。
+export const hasRepo = (s) => existsSync(repoDir(s));
+export const localServices = () => enabledServices().filter(hasRepo);
+
+// 解析 [svc|all] 參數 → 服務陣列（all = enabled 且本機有 clone）
 export function resolveTarget(arg, { fallback = "all" } = {}) {
   const t = arg || fallback;
-  if (t === "all") return enabledServices();
-  return [byId(t)];
+  if (t === "all") {
+    const missing = enabledServices().filter((s) => !hasRepo(s));
+    if (missing.length > 0) console.log(`（略過本機沒有 clone 的服務：${missing.map((s) => s.dir).join(", ")}）`);
+    return localServices();
+  }
+  const s = byId(t);
+  if (!hasRepo(s)) {
+    console.error(`✗ ${s.id} 的 repo 不在本機：${repoDir(s)}`);
+    console.error(`  先 clone 到 ops repo 同層（與 tpass-registry 並排）再跑。`);
+    process.exit(2);
+  }
+  return [s];
 }

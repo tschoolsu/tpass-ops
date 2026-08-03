@@ -172,7 +172,9 @@ deploy_one() {
   # 沒有 postinstall 掛 prisma generate，且 pnpm-lock.yaml 沒變時 install 整個被跳過，
   # schema 改了也不會重新生成，build 就會拿舊型別去對新 schema。
   # pnpm exec 只用本地依賴、找不到就報錯——不會像 npx 那樣去抓最新版（major 版差炸 schema）。
-  if [ -n "$strategy" ]; then
+  # strategy:"none" ＝ 有資料庫但不用 Prisma（例：直接用 pg）。整段 prisma 都不能碰——
+  # 那種 repo 沒有 schema.prisma，prisma generate 會直接失敗。
+  if [ -n "$strategy" ] && [ "$strategy" != "none" ]; then
     echo "   prisma generate（確保 client 型別跟得上 schema.prisma）"
     ( set -a; . "$dir/.env.local"; set +a; pnpm exec prisma generate )
   fi
@@ -188,6 +190,9 @@ deploy_one() {
     push)
       echo "   $s → prisma db push（無 migrations 目錄）"
       ( set -a; . "$dir/.env.local"; set +a; pnpm run db:push )
+      ;;
+    none)
+      echo "   $s → 非 Prisma，schema 由服務自己管，部署不套 schema"
       ;;
   esac
 

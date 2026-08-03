@@ -4,7 +4,17 @@
 // setup：一次性本機環境準備（冪等，重跑安全）。
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { CERT_DIR, ROOT, byId, dbServices, devHost, enabledServices, repoDir, resolveTarget } from "./registry.mjs";
+import {
+  CERT_DIR,
+  ROOT,
+  byId,
+  dbServices,
+  devHost,
+  enabledServices,
+  localServices,
+  repoDir,
+  resolveTarget,
+} from "./registry.mjs";
 import { commandExists, run, runParallel } from "./sh.mjs";
 import { dbSetup } from "./db.mjs";
 
@@ -55,8 +65,8 @@ export async function setup() {
     await run("ln", ["-s", CERT_DIR, link]).done;
   }
 
-  console.log(`== 3) 安裝相依（${enabledServices().map((s) => s.dir).join(" / ")}）==`);
-  for (const s of enabledServices()) {
+  console.log(`== 3) 安裝相依（${localServices().map((s) => s.dir).join(" / ")}）==`);
+  for (const s of localServices()) {
     console.log(`   -> ${s.dir}`);
     if ((await run("pnpm", ["install"], { cwd: repoDir(s), label: s.id }).done) !== 0) process.exit(1);
   }
