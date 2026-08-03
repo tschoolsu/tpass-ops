@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { byId, dbUrl, repoDir, serverRoot } from "./registry.mjs";
+import { byId, dbUrl, hasRepo, repoDir, serverRoot } from "./registry.mjs";
 import { ssh } from "./deploy.mjs";
 import { setEnv } from "./env.mjs";
 import { commandExists, run } from "./sh.mjs";
@@ -57,6 +57,10 @@ export async function dbSetup(id) {
     console.log(`   （${s.id} 無資料庫，略過）`);
     return;
   }
+  if (!hasRepo(s)) {
+    console.log(`   （${s.id} 的 repo 不在本機，略過）`);
+    return;
+  }
   const dir = repoDir(s);
   console.log(`== db setup ${s.id}（role=${s.db.user} db=${s.db.name}）==`);
   await ensurePostgresRunning();
@@ -68,6 +72,13 @@ export async function dbSetup(id) {
   if (!psql(`SELECT 1 FROM pg_database WHERE datname='${s.db.name}'`).stdout.trim()) {
     console.log(`   建 db ${s.db.name}`);
     spawnSync("createdb", ["-O", s.db.user, s.db.name], { stdio: "inherit" });
+  }
+
+  // strategy:"none" ＝ 有資料庫但不是 Prisma（例：直接用 pg）。role 與 db 的建立是通用的，
+  // 到此為止；schema 與連線字串的 env key 由服務自己管——這裡不該猜它叫什麼名字。
+  if (s.db.strategy === "none") {
+    console.log(`   ✅ ${s.id} role/db 就緒（非 Prisma：schema 與連線字串 env 由服務自理）`);
+    return;
   }
 
   // env 檔：優先沿用既有的 .env.local / .env；都沒有才從範本建 .env.local。
