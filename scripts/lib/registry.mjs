@@ -84,9 +84,10 @@ export const prodUrl = (s) => `https://${s.subdomain}.${registry.domains.prod}`;
 export const repoDir = (s) => join(ROOT, s.dir);
 export const dbUrl = (s) => `postgresql://${s.db.user}@localhost:5432/${s.db.name}`;
 
-// 主機端服務根目錄（services.json 的 server.root，例：~/tpass）。遠端指令用，~ 由遠端 shell 展開。
-export const serverRoot = registry.server?.root ?? "~/tpass";
-export const remoteEnvPath = (s) => `${serverRoot}/${s.dir}/.env.local`;
+// 相容別名：serverRoot 曾經同時代表 ops 與服務的根（server.root）。服務已搬到 servicesRoot，
+// 而它的使用者（env / db 指令）要的一直都是「服務 repo 在哪」，所以指向 hostServicesRoot。
+export const serverRoot = hostServicesRoot;
+export const remoteEnvPath = (s) => `${hostServicesRoot}/${s.dir}/.env.local`;
 
 // 解析 [svc|all] 參數 → 服務陣列（all = enabled）
 export function resolveTarget(arg, { fallback = "all" } = {}) {
