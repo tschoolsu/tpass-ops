@@ -355,8 +355,9 @@ export function setEntryYearOverride(
 `tpass-auth/src/lib/session.ts` 的 `signServiceToken()`，在 `const permissions ...` 之後、`return sign(...)` 之前加上查詢，並把結果傳進 `sign`：
 
 ```ts
-  // 屆別：DB 覆寫優先，沒有就照 email 推。這裡本來就會查 DB 拿 permissions，
-  // 多讀一個欄位不增加查詢次數。
+  // 屆別：DB 覆寫優先，沒有就照 email 推。這是一次額外的 Subject 查詢
+  // （permissionsFor 查的是 Grant 表，沒有碰 Subject），email 有 unique index，
+  // 成本可接受——換掉的是「每個服務各自維護一份休學復學名單」。
   const subject = await findSubjectByEmail(identity.email);
   const entryYear = effectiveEntryYear(
     identity.email,

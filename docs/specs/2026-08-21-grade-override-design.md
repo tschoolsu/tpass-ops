@@ -93,7 +93,7 @@ scripts/ssh.sh 'set -a; . /home/service/tpass-auth/.env.local; set +a; \
 entryYear = subject.entryYearOverride ?? parseEntryYearFromEmail(email)    // number | null
 ```
 
-該函式本來就會查 DB 拿 permissions，多讀一個欄位不增加查詢次數。
+這會多一次 `Subject` 查詢（`permissionsFor` 查的是 `Grant` 表，沒碰 `Subject`），email 有 unique index，成本可接受。
 
 `signAuthSession()` **不帶**這個 claim——那顆 token 只存身份、permissions 一律空，年級對它沒有意義。
 
