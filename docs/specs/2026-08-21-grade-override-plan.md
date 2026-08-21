@@ -1046,6 +1046,13 @@ describe("deriveGrade", () => {
     ).toBe(2);
   });
 
+  it("休學一年復學：覆寫屆別後從誤判的高二變回高一", () => {
+    const autumn115 = new Date(2026, 8, 1); // 民國 115 學年度
+    const email = "1140001@example.edu.tw";
+    expect(deriveGrade({ email }, autumn115)).toBe(2); // 不修正 → 誤判高二
+    expect(deriveGrade({ email, entryYear: 115 }, autumn115)).toBe(1); // 修正後 → 高一
+  });
+
   it("老師／職務帳號 → null", () => {
     expect(deriveGrade({ email: "teacher@example.edu.tw" }, AUTUMN_114)).toBeNull();
   });

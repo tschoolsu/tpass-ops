@@ -95,6 +95,10 @@ entryYear = subject.entryYearOverride ?? parseEntryYearFromEmail(email)    // nu
 
 這會多一次 `Subject` 查詢（`permissionsFor` 查的是 `Grant` 表，沒碰 `Subject`），email 有 unique index，成本可接受。
 
+**這個查詢必須 fail-open**（try/catch → 查不到就當作沒有覆寫、照 email 推）。auth 對 DB 故障
+一律降級（`getSession` 與 `permissionsFor` 都是），簽章路徑不能為了一個顯示用欄位就變成硬依賴
+DB——否則 Postgres 短暫斷線會讓整個生態系登不進去。
+
 `signAuthSession()` **不帶**這個 claim——那顆 token 只存身份、permissions 一律空，年級對它沒有意義。
 
 ## 5. 消費端（`tpass-form`、`tpass-appeals`）
@@ -145,6 +149,19 @@ claim 不存在        → fallback 回 email 前三碼（＝現行行為）
 | `tpass-form/src/components/builder/SettingsPanel.tsx:83` | UI 文案「年級由信箱前三碼推算」會變成假的 |
 
 `docs/NEW-SERVICE.md` 不動——年級是選用資料，寫在 INTEGRATION.md §3.3 就夠，塞進流程文件只會讓它變長。
+
+## 7.5 已知降級（fail-open 的代價）
+
+`signServiceToken` 的屆別查詢是 fail-open 的：DB 故障時降級為照 email 推算。代價是
+**已設定覆寫的休學復學學生，在故障窗口內會拿到他們原本要被修正掉的那個錯誤年級**，
+而且格式合法、使用者不會察覺。
+
+這是刻意的取捨：`entryYear` 只用於顯示，不進權限判斷；用它的暫時失準換整個 SSO 的可用性
+（不 fail-open 的話 DB 一斷線全校登不進去）。若日後 DB 故障頻繁，監控這行日誌：
+
+```
+[session] entryYearOverride 查詢失敗，降級為照 email 推算（fail-open）
+```
 
 ## 8. 明確不做
 
