@@ -47,15 +47,41 @@ entryYearOverride Int?   // 民國入學學年度覆寫；null = 照 email 前�
 
 ### 資料安全性（本次最重要的約束）
 
+**真資料只在主機**，本機是可拋棄的開發資料庫。所以所有保護措施都對準主機。
+
+主機現況（2026-08-21 實查）：
+
+```
+_prisma_migrations : 20260727095455_init | 2026-07-28 08:25 | 未 rollback
+資料量             : Subject 105 / Grant 11 / AuditLog 15
+```
+
+`_prisma_migrations` 表存在且 init 正常套用 → `migrate deploy` 會乾淨地只跑新 migration，
+**不需要 baseline，不會撞「表已存在」**。這是加欄位最容易出事的情境，已排除。
+
 | 保證 | 依據 |
 | --- | --- |
 | 現有 row 不被改動 | 新欄位 nullable、無 default，migration 只有 `ALTER TABLE "Subject" ADD COLUMN "entryYearOverride" INTEGER;`。Postgres 對這種加欄位是 metadata-only，不重寫資料頁、不長時間鎖表 |
-| 部署不會 reset DB | `services.json` 的 `auth.db.strategy = "migrate"`，`deploy.sh:187` 走 `prisma migrate deploy`——只前進、不 reset、偵測到 drift 是報錯而不是重建 |
+| 部署不會 reset DB | `services.json` 的 `auth.db.strategy = "migrate"`，`deploy.sh:187` 走 `prisma migrate deploy`——只前進、不 reset、偵測到 drift 是**報錯**而不是重建 |
+| 出事有得救 | 部署前先 `pg_dump`（見下），105 筆 Subject 的 dump 是秒級的，沒有不做的理由 |
 | `form` / `appeals` 零 schema 風險 | 這兩個 repo 本次**完全不動 Prisma schema**，只改 TypeScript |
 | 歷史年級資料不被回溯竄改 | 已存的 `respondentGrade` 一律不 touch（見 §8） |
 
-⚠️ 本機開發注意：`pnpm db:migrate`（`prisma migrate dev`）若偵測到本機 DB 與 migrations 有 drift，
-會提議 **reset 整個資料庫**。本機 auth DB 有想留的資料就先確認提示內容再按。主機不受影響（走 `migrate deploy`）。
+### 部署前必做：備份
+
+```bash
+scripts/ssh.sh 'set -a; . /home/service/tpass-auth/.env.local; set +a; \
+  pg_dump "$DATABASE_URL" > ~/t_auth-backup-$(date +%Y%m%d-%H%M).sql; \
+  ls -lh ~/t_auth-backup-*.sql | tail -1'
+```
+
+確認 dump 檔案大小合理（非 0）後才執行部署。
+
+**主機上絕不執行**：`prisma migrate dev`、`prisma db push`、`prisma migrate reset`。
+部署一律走 `deploy.sh`，它已經依 `strategy` 選對 `migrate deploy`。
+
+⚠️ 本機：`pnpm db:migrate` 偵測到 drift 會提議 reset 整個資料庫——本機沒有要保留的資料，
+按下去無妨。這條警告只是說明兩邊行為不同，不是主機的風險。
 
 ## 4. auth 端
 
@@ -143,3 +169,6 @@ auth 先上時舊服務完全無感——JWT 多一個未知 claim 會被消費�
 - [ ] moderator 改得動屆別，一般使用者打 server action 被擋
 - [ ] `/admin/audit` 看得到 `entryYear.set` 紀錄
 - [ ] 三個 repo 各自 `pnpm lint` + `pnpm exec tsc --noEmit` 通過
+- [ ] 部署前已產出 `pg_dump` 備份且檔案非空
+- [ ] 部署後主機資料量不變：Subject 105 / Grant 11 / AuditLog 15（新增的人不算）
+- [ ] 部署後 `_prisma_migrations` 多一筆、且 `rolled_back_at` 為 null
