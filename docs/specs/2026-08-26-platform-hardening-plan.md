@@ -90,6 +90,13 @@
 2. 告警管道接部長的手機（Email + 推播）。
 3. 選配：Sentry 免費方案（每月 5,000 事件）接進各服務，收線上例外。
 
+**A1 已經留下可以直接用的東西，不要重做**：
+- 主機已有一個維運告警用的 **Discord webhook**，存在 `~/tpass/deploy/backup.env` 的
+  `BACKUP_DISCORD_WEBHOOK`（gitignored）。UptimeRobot 支援 webhook 通知，可以送到同一個頻道。
+- `tpass status` 已經會讀 `~/.tpass-backup-status` 並顯示「最後備份 X 小時前」
+  （`scripts/lib/deploy.mjs` 的 `status()` 尾巴）。**同一個位置適合再掛上監控摘要**。
+- 主機已裝 rclone、有 cron（`crontab -l` 有一條備份排程），要加排程檢查不必再處理環境。
+
 **驗收**：故意停掉一個非關鍵服務的 pm2 程序，三分鐘內收到告警，恢復後收到恢復通知。
 
 ---
@@ -415,7 +422,7 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       失敗兩層可見：Discord webhook（跑了但失敗）+ `tpass status` 的
       「最後備份 X 小時前」（cron 沒觸發）。用法見 `docs/ONBOARDING.md` §6.1。
       **未加密**、**存在維運者的 Google 帳號**——畢業前必須搬家（見 C5）。
-- [ ] A2 線上監控與告警
+- [ ] **A2 線上監控與告警 ← 下一項**
 - [ ] A3 `notes` 去留決定
 - [ ] A4 Discord 通知去識別化
 - [ ] A5 根網域轉址
