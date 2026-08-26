@@ -371,6 +371,7 @@ scripts/ssh.sh '<cmd>'      # 跑單一指令
 | 層 | 誰在看 | 擋什麼 |
 | --- | --- | --- |
 | **UptimeRobot**（外部，5 分鐘一次，全天無休） | 機器 | 站掛了。**主機整台死掉時只有它叫得出來**——跑在主機上的東西都跟著死了。 |
+| ~~備份的死人開關~~ | — | **尚未啟用**。「每日備份根本沒跑」目前只有 `tpass status` 會顯示，要人主動去看。見下。 |
 | **`tpass status`**（本機發動，人主動跑） | 人 | 看得比較深：pm2 重啟數、記憶體、程式碼版本落後幾個 commit、最後備份時間、監控覆蓋率 |
 
 前者回答「有沒有事」，後者回答「到底怎麼了」。**收到告警之後跑的是後者。**
@@ -397,7 +398,7 @@ scripts/tpass logs form -f     # 跟隨
 | 🟢 | HEAD = origin/main | 沒事 |
 | ↺ 數字很大但穩定成長 | **正常**——每次 deploy reload 都會 +1 | 不用管 |
 | ⚠️ `<svc>` 沒有監控 | registry 標 `deployed` 但 UptimeRobot 上沒有對應 monitor | 去補一個（見下） |
-| 🔴 超過 30 小時沒備份 | cron 沒觸發 | §6.1 |
+| 🔴 超過 30 小時沒備份 | cron 沒觸發 | §6.1。**目前沒有任何東西會主動告訴你這件事**——死人開關還沒接 |
 
 ### 線上監控與告警（UptimeRobot）
 
@@ -409,20 +410,28 @@ Google 專案——個人帳號會隨畢業停用，監控跟著消失。
 | monitor | 網址 | 正常回什麼 |
 | --- | --- | --- |
 | auth / portal / form / msg / appeals / buddy | `https://<subdomain>.tschoolsu.org/` | auth 回 **200**，其餘五個回 **307**（未登入導去 auth） |
-| 備份 heartbeat | 由 UptimeRobot 給的 ping URL | 每日 04:15 備份成功時被 ping 一次 |
+| 根網域 | `https://tschoolsu.org/` | **目前 Paused**——根網域還沒有 DNS 記錄（計畫的 A5）。A5 做完再開回來。 |
 
 > ⚠️ **消費端回 307 不是錯誤。** 建 monitor 時務必把「視為 up 的狀態碼」放寬到
 > **2xx + 3xx**（等價於 `deploy.sh` 健康檢查用的「HTTP < 500」）。只收 200 的話
 > 五個服務會全天誤報 down，然後沒人再看告警——假警報比沒有告警更糟。
 
-**告警送到哪**：Email + UptimeRobot 手機 App 推播 + webhook 送到維運 Discord 頻道
-（**沿用 `deploy/backup.env` 的 `BACKUP_DISCORD_WEBHOOK`，同一條，不必開新的**）。
+**告警送到哪**（兩個管道，七個 monitor 都掛上，`threshold:0` 一偵測到就發）：
 
-**heartbeat 是什麼、為什麼需要**：其他 monitor 是 UptimeRobot 主動來打你；heartbeat 反過來，
-是**你去打它**，超過設定週期沒收到就告警。備份的週期設 **25 小時**（cron 是每日 04:15，留 1 小時餘裕）。
-擋的是備份的第三種失敗——腳本**從未執行**（crontab 被清、cron 死了、主機重開沒起來）。
-那種時候 Discord 不會響，因為沒有東西發得出告警。**死人開關等的是「好消息沒來」。**
-ping 由 `deploy/backup.sh` 最後一段發出，URL 填在主機的 `deploy/backup.env` 的 `BACKUP_HEARTBEAT_URL`。
+| 管道 | 去哪 |
+| --- | --- |
+| Email | `studentcouncil@tschool.tp.edu.tw`（註冊時自動建） |
+| Discord webhook | 維運頻道，**與備份失敗告警同一條** |
+
+> ⚠️ **還沒接手機推播。** 這兩個都是「要有人去看」才成立的管道，半夜不會把人叫醒。
+> 要補：手機裝 UptimeRobot App、用同一個帳號登入，它會自動變成第三個通知管道。
+
+> 🔑 API key 雖然是唯讀的，**讀得出 Discord webhook 的完整網址**——當機密保管，
+> 只放 gitignored 的 `deploy/host.env`，不要貼進 issue / PR / 任何被追蹤的檔案。
+
+**多久會發現**：免費方案 5 分鐘間隔，加上判定要連續失敗，實際落在 **5～7 分鐘**。
+2026-08-26 實測 `pm2 stop buddy`：6.6 分鐘後告警，復原後 4.5 分鐘發恢復通知。
+**這是方案的硬限制，看到「6 分鐘才叫」不要以為是設定錯了。**
 
 **`tpass status` 怎麼看得到監控**：填本機 `deploy/host.env` 的 `UPTIMEROBOT_API_KEY`（唯讀 key，
 gitignored，**不放主機**——這是本機工具用的）。沒填就整段安靜跳過，不是錯誤。
@@ -431,6 +440,31 @@ gitignored，**不放主機**——這是本機工具用的）。沒填就整段
 
 **新服務上線時要記得加一個 monitor**——沒有自動化。`tpass status` 的 `⚠️ 沒有監控` 是補救，
 預防在 `docs/handbook/04-registry-sop.md` 翻 `deployed:true` 前的檢查表。
+
+### 備份的死人開關（🚧 尚未啟用，程式碼已就緒）
+
+**這個洞還開著**：備份的第三種失敗是腳本**從未執行**（crontab 被清、cron 服務死了、
+主機重開後沒起來）。那種時候 Discord 不會響，因為根本沒有東西發得出告警；
+`tpass status` 的時間戳停住不動，但那要人主動去看。**沉默看起來跟成功一模一樣。**
+
+死人開關等的是「好消息沒來」，不是壞消息：備份成功時去 ping 一個外部服務，
+超過週期沒收到就由**那個外部服務**告警。UptimeRobot 免費方案沒有 heartbeat
+（官網行銷頁寫「全方案都有」，產品裡是 Solo 以上——**以產品裡看到的為準**）。
+
+**要啟用的話，`deploy/backup.sh` 那段已經寫好了**，只差一串 URL：
+
+1. https://healthchecks.io 註冊（免費 20 個 check，用學生會官方信箱）
+2. 建一個 check：Name `tpass-backup`、Period **1 day**、Grace **1 hour**
+   （cron 是每日 04:15 → 約 25 小時沒 ping 就叫）
+3. 複製它的 ping URL，**一條 ssh** 寫進主機：
+
+```bash
+scripts/ssh.sh "printf 'BACKUP_HEARTBEAT_URL=%s\n' 'https://hc-ping.com/<uuid>' >> ~/tpass/deploy/backup.env"
+tpass backup run          # 驗證：healthchecks 那頁應該立刻變綠
+```
+
+沒填就完全不動作，不會報錯。**`--dry-run` 也不會 ping**——那段在 dry-run 的 `exit 0`
+之後，假的心跳比沒有心跳更糟。
 
 ---
 
@@ -482,7 +516,7 @@ pm2 start <svc>
 | --- | --- |
 | Discord webhook（`deploy/backup.env` 的 `BACKUP_DISCORD_WEBHOOK`） | 腳本跑了但失敗 |
 | `tpass status` 的「最後備份 X 小時前」，超過 30 小時標紅 | **cron 根本沒觸發**——webhook 不會響 |
-| UptimeRobot heartbeat（`backup.env` 的 `BACKUP_HEARTBEAT_URL`），25 小時沒收到 ping 就告警 | 同上，但**不必有人主動去看**——主機整台掛掉也算（見 §6「線上監控與告警」） |
+| 🚧 死人開關（`backup.env` 的 `BACKUP_HEARTBEAT_URL`）——**尚未啟用**，程式碼已就緒 | 同上，但**不必有人主動去看**。沒接之前，「cron 沒觸發」仍然只有主動跑 `tpass status` 才看得到（見 §6） |
 
 ### 設定放哪
 
@@ -496,6 +530,7 @@ remote 名稱、Discord webhook、保留天數。Google 的 OAuth token 在主�
 - **備份存在 `studentcouncil@` 的「我的雲端硬碟」**（官方帳號，不隨個人畢業消失；見 §6.2）。
   改用**共用雲端硬碟**（rclone 的 `team_drive`）會更穩——不綁任何單一帳號。尚未做。
 - **只有每日全量，沒有 PITR**。最壞情況是丟失最近 24 小時的資料。
+- **「cron 沒觸發」還沒有主動告警**。死人開關的程式碼在，外部 check 還沒接（見 §6）。
 
 ---
 

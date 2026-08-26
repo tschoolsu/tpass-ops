@@ -163,6 +163,8 @@
 → `https://portal.tschoolsu.org`（301）。
 
 **驗收**：`curl -I https://tschoolsu.org` 回 301 指向 portal。
+A2 已經在 UptimeRobot 建好 `https://tschoolsu.org` 的 monitor 並**設為 Paused**
+（根網域現在沒有 DNS，留著它每天紅只會訓練人忽略告警）。**A5 做完把它開回來，它變綠就是驗收。**
 
 **卡住時**：需要部長的 Cloudflare 帳號。
 
@@ -401,6 +403,12 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
 
 體檢發現、但不在本計畫範圍內的項目。**不要順手做，記著就好**：
 
+- **Sentry（線上例外收集）沒做**——A2 第 4 點列為選配，2026-08-26 決定不併進 A2
+  （要動 6 個服務 repo、6 個 DSN、6 次部署，是獨立一件事）。
+  現況：**「站活著但功能壞掉」沒有任何訊號**——UptimeRobot 只知道首頁有回應。
+  相關的待討論題目：大公司在「各團隊獨立開發模組」的架構下，是怎麼要求開發者把 Sentry
+  併進自己的專案的（強制？模板？共用套件？）——這跟 C1 抽共用套件是同一類問題。
+
 - `tpass-appeals/src/config/admin.ts:13-16` 的 `isAdmin` 扁平化——任何 moderator
   都能讀全部申訴，沒有分案隔離。（比 A4 大，需要權限模型討論。）
 - 沒有任何資料保留政策。學生三年前的問卷與申訴永遠躺在主機上，畢業生資料無處理流程。
@@ -428,9 +436,34 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       auth/form/msg/appeals 四個正式庫已各還原驗證一次，列數與主機一致。
       失敗兩層可見：Discord webhook（跑了但失敗）+ `tpass status` 的
       「最後備份 X 小時前」（cron 沒觸發）。用法見 `docs/ONBOARDING.md` §6.1。
-      **未加密**、**存在維運者的 Google 帳號**——畢業前必須搬家（見 C5）。
-- [ ] **A2 線上監控與告警 ← 下一項**
-- [ ] A3 `notes` 去留決定
+      **未加密**；已搬到 `studentcouncil@` 官方帳號的「我的雲端硬碟」（不隨個人畢業消失），
+      改用共用雲端硬碟會更穩，尚未做（見 `ONBOARDING.md` §6.1 已知限制）。
+- [x] A2 線上監控與告警（2026-08-26 完成，**heartbeat 未接**）
+      UptimeRobot 免費方案，6 個 `deployed:true` 服務各一個 HTTP monitor，5 分鐘間隔。
+      **接受碼放寬到 2xx+3xx**——消費端未登入回 307，只收 200 會全天誤報。
+      告警管道兩個：email（`studentcouncil@` 官方信箱）+ Discord webhook（維運頻道，
+      與備份失敗告警同一條）。七個 monitor 都掛上、`threshold:0` 不延遲。
+      **手機推播還沒接**——這兩個管道都要有人去看才成立，半夜叫不醒人。
+      🔑 唯讀 API key **讀得出 Discord webhook 全文**，要當機密保管（放 gitignored 的
+      `deploy/host.env`）。
+      **端到端實測過**（2026-08-26）：`pm2 stop buddy` → **6.6 分鐘**後判定 down 並告警
+      → 復原後 4.5 分鐘判定 up 並發恢復通知。
+      ⚠️ 計畫原本寫的「三分鐘內」**免費方案做不到**——最短就是 5 分鐘間隔，
+      加上判定要連續失敗，實際落在 5～7 分鐘。這是方案的硬限制，不是設定錯了。
+      `tpass status` 多一段「== 監控 ==」：讀 UptimeRobot v2 API（唯讀 key 放本機
+      gitignored 的 `deploy/host.env`，**不放主機**），並**跟註冊表對照抓出
+      「`deployed:true` 卻沒有人開監控」的服務**——那是網頁看不出來的，也是唯一寫 code 的理由。
+      沒填 key 整段安靜跳過。用法見 `docs/ONBOARDING.md` §6。
+      順手修掉 `status()` 的一個 early return：拿不到主機 git 版本時，會把後面的監控與備份
+      兩段一起吞掉——那恰好是最不該沉默的兩段。
+      **留給下一個人的三件事**：
+      ① **死人開關沒接**（A1 的洞還開著）。`backup.sh` 的 ping 已經寫好，`backup.env` 填一個
+      `BACKUP_HEARTBEAT_URL` 就生效；UptimeRobot 免費方案**沒有** heartbeat（行銷頁寫有，
+      產品裡是 Solo 以上），要接就用 healthchecks.io，步驟寫在 `ONBOARDING.md` §6。
+      在那之前「cron 根本沒觸發」仍然只有主動跑 `tpass status` 才看得到。
+      ② **新服務上線要手動加 monitor**，沒有自動化；`tpass status` 的 ⚠️ 是補救不是預防（見 C3）。
+      ③ UptimeRobot 帳號同樣**不隨個人畢業**才安全（見 C5）。
+- [ ] **A3 `notes` 去留決定 ← 下一項**
 - [ ] A4 Discord 通知去識別化
 - [ ] A5 根網域轉址
 - [ ] B1 部署搬進 GitHub Actions

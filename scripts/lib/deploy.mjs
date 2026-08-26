@@ -121,15 +121,22 @@ export async function status() {
     .join("; ");
   const g = ssh(script, { capture: true });
   if (g.status !== 0 || !g.stdout.trim()) {
+    // 這裡曾經是 return —— 拿不到 git 版本就連監控與備份都不印了。
+    // 那兩段恰好是最不該沉默的（沒監控、沒備份），所以只跳過這一段。
     console.log("  ⚠️ 無法取得主機 git 版本");
-    return;
+  } else {
+    for (const line of g.stdout.trim().split("\n")) {
+      const [id, head, behind] = line.trim().split(/\s+/);
+      if (!id) continue;
+      const flag = behind === "0" ? "🟢 最新" : `🟠 落後 origin/main ${behind ?? "?"} commit → tpass deploy ${id}`;
+      console.log(`  ${id.padEnd(10)} ${head ?? "?"}  ${flag}`);
+    }
   }
-  for (const line of g.stdout.trim().split("\n")) {
-    const [id, head, behind] = line.trim().split(/\s+/);
-    if (!id) continue;
-    const flag = behind === "0" ? "🟢 最新" : `🟠 落後 origin/main ${behind ?? "?"} commit → tpass deploy ${id}`;
-    console.log(`  ${id.padEnd(10)} ${head ?? "?"}  ${flag}`);
-  }
+
+  // 外部監控的狀態。這裡不是要取代 UptimeRobot 的網頁，而是做網頁做不到的事：
+  // 跟註冊表對照，抓出「deployed 卻沒有人幫它開監控」的服務。
+  const { monitorSummary, printMonitorSummary } = await import("./monitor.mjs");
+  printMonitorSummary(await monitorSummary());
 
   // 備份的靜默失敗防線：Discord webhook 只會在「跑了但失敗」時響，
   // 「cron 根本沒觸發」不會。所以這裡主動報最後一次成功備份的時間。

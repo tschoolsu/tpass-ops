@@ -235,7 +235,7 @@ jq -n \
 # ---------- 7. heartbeat ----------
 # 第三道防線。前兩道都擋不住「cron 根本沒觸發」——腳本從未執行，Discord 不會響，
 # 而狀態檔的時間戳停住不動要人主動去看。死人開關等的是「好消息沒來」，不是壞消息。
-# 超過設定的週期沒收到這個 ping，UptimeRobot 就叫。設定見 docs/ONBOARDING.md §6「線上監控與告警」。
+# 超過設定的週期沒收到這個 ping，healthchecks.io 就叫。設定見 docs/ONBOARDING.md §6「線上監控與告警」。
 # ping 失敗不能算備份失敗（檔案已經安全上去了）→ 用 || 兜住，不要觸發 ERR trap。
 # 而且漏 ping 也不會變成靜默：監控那頭收不到，本來就會叫，方向是安全的。
 if [ -n "$BACKUP_HEARTBEAT_URL" ]; then
