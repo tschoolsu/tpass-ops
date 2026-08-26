@@ -130,6 +130,20 @@ export async function status() {
     const flag = behind === "0" ? "🟢 最新" : `🟠 落後 origin/main ${behind ?? "?"} commit → tpass deploy ${id}`;
     console.log(`  ${id.padEnd(10)} ${head ?? "?"}  ${flag}`);
   }
+
+  // 備份的靜默失敗防線：Discord webhook 只會在「跑了但失敗」時響，
+  // 「cron 根本沒觸發」不會。所以這裡主動報最後一次成功備份的時間。
+  console.log("\n== 備份 ==");
+  const { backupStatus } = await import("./backup.mjs");
+  const b = backupStatus();
+  if (!b?.at) {
+    console.log("  🔴 沒有任何備份紀錄 → tpass backup setup && tpass backup install-cron");
+    return;
+  }
+  const hours = (Date.now() - Date.parse(b.at)) / 3600000;
+  const flag = hours > 30 ? "🔴 超過 30 小時沒備份了！" : "🟢";
+  console.log(`  ${flag} 最後備份 ${hours.toFixed(1)} 小時前  ${b.databases} 個資料庫 + ${b.archives} 份 data/  ${(b.bytes / 1048576).toFixed(1)}MB`);
+  console.log(`     ${b.remote}`);
 }
 
 export function logs(id, follow = false) {

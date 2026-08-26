@@ -236,6 +236,10 @@ cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身吃最新 m
 
 build 失敗時舊版行程**不受影響**（reload 只在 build 成功之後才發生）。
 
+> ⚠️ **這只救程式碼，不救資料。** 第 8 步的 `prisma migrate deploy` 是對正式庫直接動手的——
+> migration 砍掉一個欄位，那個欄位的資料就永久沒了，revert 也長不回來。
+> 砍欄位 / 改型別的 migration 上線前，先手動備一次：`tpass backup run`（見 §6.1）。
+
 ### 4.1 改主機的 env（不需 root）
 
 本機與主機的值本來就不同（正式網域、正式金鑰、正式 `DATABASE_URL`）。`.env.local` 是**部署帳號自己擁有**的檔（`/home/service/<dir>/.env.local`），改它不需要 root：
@@ -384,10 +388,75 @@ scripts/tpass logs form -f     # 跟隨
 
 ---
 
+## 6.1 備份與還原
+
+**排程**：主機 cron 每日 04:15 跑 `~/tpass/deploy/backup.sh`，把每個資料庫的 `pg_dump`
+與各服務的 `data/` 目錄傳到主機以外的備份庫（rclone remote，目前是 Google Drive）。
+日備留 7 份、週備（週日那份）留 4 份。
+
+**備份什麼是從註冊表派生的**，不是寫死的清單：`enabled && db != null` 的服務各一個 dump，
+加上任何 `enabled` 服務底下非空的 `<dir>/data/` 目錄。新服務上線後**自動被涵蓋**，不必改腳本。
+
+```bash
+tpass status                          # 尾巴會顯示「最後備份 X 小時前」
+tpass backup list                     # 備份庫上有哪些備份
+tpass backup run                      # 手動備一次（動 migration 之前跑這個）
+tpass backup run --dry-run            # 只 dump 不上傳，測腳本用
+tpass backup restore <日期> <svc>     # 還原驗證
+tpass backup install-cron             # 裝排程（冪等）
+tpass backup setup                    # 一次性：主機裝 rclone + 搬 remote 設定
+```
+
+### 怎麼真的還原一個資料庫
+
+`tpass backup restore` 做的是**驗證**：在 Docker 的 `postgres:18` 容器裡還原、印出每張表的
+列數並跟主機對照，跑完就把容器收掉。**它不會碰主機。** 這是刻意的——還原到正式庫是不可逆的，
+不該是一個打錯就發生的指令。
+
+真的要覆蓋主機資料庫時（資料被誤刪、migration 出事），在主機上手動做，一步一步：
+
+```bash
+scripts/ssh.sh                                   # 進主機
+~/.local/bin/rclone copy tpass-backup:tpass-backups/daily/<日期>/<svc>-<db>.dump /tmp/
+pm2 stop <svc>                                   # 先停服務，避免邊寫邊還原
+pg_dump --format=custom --no-owner --no-privileges \
+  --dbname="$(grep -m1 '^DATABASE_URL=' /home/service/<dir>/.env.local | cut -d= -f2-)" \
+  --file=/tmp/before-restore.dump                # 還原前先備現況，這步不要跳過
+pg_restore --clean --if-exists --no-owner --no-privileges \
+  --dbname="$(grep -m1 '^DATABASE_URL=' /home/service/<dir>/.env.local | cut -d= -f2-)" \
+  /tmp/<svc>-<db>.dump
+pm2 start <svc>
+```
+
+### 失敗會怎麼讓你知道
+
+兩道防線，因為它們擋的是不同的失敗：
+
+| 防線 | 擋什麼 |
+| --- | --- |
+| Discord webhook（`deploy/backup.env` 的 `BACKUP_DISCORD_WEBHOOK`） | 腳本跑了但失敗 |
+| `tpass status` 的「最後備份 X 小時前」，超過 30 小時標紅 | **cron 根本沒觸發**——webhook 不會響 |
+
+### 設定放哪
+
+`~/tpass/deploy/backup.env`（主機上，**gitignored**，範本是 `backup.env.example`）：
+remote 名稱、Discord webhook、保留天數。Google 的 OAuth token 在主機
+`~/.config/rclone/rclone.conf`（600），一樣不進 git。
+
+### 已知限制
+
+- **備份沒有加密**。風險是「Google 帳號或 rclone token 外洩 = 全校申訴內容外洩」。
+- **備份存在維運者的 Google 帳號裡**——畢業帳號停用前必須搬家。**寫進交接清單。**
+- **只有每日全量，沒有 PITR**。最壞情況是丟失最近 24 小時的資料。
+
+---
+
 ## 7. 疑難排解
 
 | 症狀 | 原因 / 解法 |
 | --- | --- |
+| `tpass status` 說「超過 30 小時沒備份」 | cron 沒跑或腳本掛了。`scripts/ssh.sh 'crontab -l'` 確認排程還在，再看 `scripts/ssh.sh 'tail -50 ~/tpass-backup.log'` |
+| Discord 說備份失敗 | 訊息裡有卡住的步驟。最常見是 rclone 的 Google token 過期 → 本機 `rclone config reconnect tpass-backup:` 後 `tpass backup setup` 重搬設定 |
 | 本機登入後一直被踢回登入頁 | dev 指令少了 `NODE_TLS_REJECT_UNAUTHORIZED=0`，消費端後端抓不到 auth 的 JWKS（見 §0 的 ⚠️）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`。**主機上出現這症狀跟 TLS 無關**，去查 `iss` / `aud` |
 | `tpass deploy` 報 git 錯誤 | 主機 `~/tpass` 工作樹不乾淨（主機上不該手改檔案）。`scripts/ssh.sh 'git -C ~/tpass status'` 看 |
 | `tpass deploy` 健康檢查失敗 | `tpass logs <svc>` 看啟動錯誤；最常見是 env 缺值或 DB 連不上 |

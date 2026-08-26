@@ -28,6 +28,13 @@ const HELP = `tpass —— tschool 平台開發/部署工具（不帶參數進�
   tpass env unset <svc> K    移除主機 .env.local 的一個 key
   tpass db create <svc>      在主機建 role+db + 寫入遠端 DATABASE_URL（需一次性授權，見 docs/ONBOARDING.md）
 
+備份（排程由主機 cron 跑，這裡是人要介入時的入口）
+  tpass backup run [--dry-run]        手動觸發一次主機備份
+  tpass backup list                   看備份庫上有哪些備份
+  tpass backup restore <日期> <svc>   還原驗證（下載 → Docker postgres:18 → 對照主機列數）
+  tpass backup install-cron           裝每日排程
+  tpass backup setup                  一次性：主機裝 rclone + 搬 remote 設定上去
+
 其他
   tpass new [id]             登記新服務（寫 tpass-registry + 印人工步驟清單）
   tpass ui                   開本機管理儀表板（瀏覽器 GUI）
@@ -66,6 +73,7 @@ async function menu() {
     ["看主機 log", async (rl) => (await import("./lib/deploy.mjs")).logs(await pickService(rl, { allowAll: false }))],
     ["本機資料庫 setup", async (rl) => (await import("./lib/db.mjs")).dbSetup(await pickService(rl, { allowAll: false }))],
     ["一次性環境準備（setup）", async () => (await import("./lib/build.mjs")).setup()],
+    ["手動備份主機資料庫", async () => (await import("./lib/backup.mjs")).backupRun()],
     ["登記新服務（new）", async () => (await import("./lib/scaffold.mjs")).newService()],
     ["開管理儀表板（ui）", async () => (await import("./lib/ui.mjs")).ui()],
   ];
@@ -146,6 +154,20 @@ switch (cmd) {
   case "logs":
     (await import("./lib/deploy.mjs")).logs(args.filter((a) => a !== "-f")[0], args.includes("-f"));
     break;
+  case "backup": {
+    const b = await import("./lib/backup.mjs");
+    const sub = args[0];
+    if (sub === "run") b.backupRun(args.includes("--dry-run"));
+    else if (sub === "list") b.backupList();
+    else if (sub === "restore") await b.backupRestore(args[1], args[2]);
+    else if (sub === "install-cron") b.installCron();
+    else if (sub === "setup") b.backupSetup();
+    else {
+      console.error("用法: tpass backup run [--dry-run] | list | restore <日期> <svc> | install-cron | setup");
+      process.exit(2);
+    }
+    break;
+  }
   case "new":
     await (await import("./lib/scaffold.mjs")).newService(args[0]);
     break;

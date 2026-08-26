@@ -16,8 +16,10 @@
 !/deploy/
 !/docs/
 
-# --- deploy/ 內的主機連線機密不追蹤（其餘 deploy/ 檔照追蹤）---
+# --- deploy/ 內的機密不追蹤（其餘 deploy/ 檔照追蹤）---
+# 注意：下面 `.env.*` 那條保險絲比對的是「以 .env. 開頭」的檔名，配不到 backup.env，必須明列。
 /deploy/host.env
+/deploy/backup.env
 
 # --- 誤建目錄，含機密；保留不刪但永不進 git（已被上面 /* 忽略，明列一次求明確）---
 /~/
