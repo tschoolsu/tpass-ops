@@ -3,8 +3,10 @@
 #
 # 備份什麼（全部從 ../tpass-registry/services.json 派生，不得在此硬編碼服務名）：
 #   1. 每個 enabled 且 db != null 的服務 → pg_dump（custom format，已壓縮）
-#   2. 每個 enabled 服務的 <dir>/data/ 目錄（存在且非空才打包）
-#      ——這是通用規則不是為某個服務開的特例：任何把狀態寫在 data/ 的服務都自動被涵蓋。
+#   2. 每個 enabled 服務的 <dir>/data/ 與 <dir>/uploads/（存在且非空才打包）
+#      ——這是通用規則不是為某個服務開的特例：任何把狀態寫在這兩個目錄之一的服務
+#      都自動被涵蓋。收兩個名字是因為 data/ 是本專案的慣例（buddy 的 pairs.json），
+#      而後來納管的 notes 與 meeting 把使用者上傳檔寫在 uploads/。
 #
 # 為什麼用各服務 .env.local 的連線字串而不是 peer auth：部署帳號的 PG role 有
 # CREATEDB/CREATEROLE 但不是 superuser，直接 `pg_dump t_form` 會是 permission denied。
@@ -142,18 +144,22 @@ done <<EOF
 $(db_rows)
 EOF
 
-# ---------- 2. 檔案狀態（<dir>/data/）----------
+# ---------- 2. 檔案狀態（<dir>/data/、<dir>/uploads/）----------
+# 目錄名列成清單，不為個別服務開特例。要再收一個名字就加在這裡一個字。
+STATE_DIRS="data uploads"
 FILES=0
 while IFS='|' read -r id dir; do
   [ -n "$id" ] || continue
-  d="$SVC_ROOT/$dir/data"
-  [ -d "$d" ] || continue
-  [ -n "$(ls -A "$d" 2>/dev/null | grep -v '^\.gitkeep$' || true)" ] || continue
-  STEP="打包 $id 的 data/"
-  echo "-- $STEP"
-  tar czf "$TMP/$id-data.tar.gz" -C "$SVC_ROOT/$dir" data
-  echo "   $(du -h "$TMP/$id-data.tar.gz" | cut -f1)"
-  FILES=$((FILES + 1))
+  for sub in $STATE_DIRS; do
+    d="$SVC_ROOT/$dir/$sub"
+    [ -d "$d" ] || continue
+    [ -n "$(ls -A "$d" 2>/dev/null | grep -v '^\.gitkeep$' || true)" ] || continue
+    STEP="打包 $id 的 $sub/"
+    echo "-- $STEP"
+    tar czf "$TMP/$id-$sub.tar.gz" -C "$SVC_ROOT/$dir" "$sub"
+    echo "   $(du -h "$TMP/$id-$sub.tar.gz" | cut -f1)"
+    FILES=$((FILES + 1))
+  done
 done <<EOF
 $(svc_rows)
 EOF
@@ -169,7 +175,7 @@ SUMS="$(cd "$TMP" && sha256sum -- *)"
   echo "backup:     $TS"
   echo "host:       $(hostname)"
   echo "ops-commit: $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
-  echo "databases:  $DUMPED    data-archives: $FILES"
+  echo "databases:  $DUMPED    file-archives: $FILES"
   echo
   echo "$SUMS"
   if [ -n "$SKIPPED" ]; then
@@ -179,7 +185,7 @@ SUMS="$(cd "$TMP" && sha256sum -- *)"
 } > "$TMP/MANIFEST.txt"
 
 TOTAL="$(du -sb "$TMP" | cut -f1)"
-echo "-- 共 $DUMPED 個資料庫 + $FILES 份 data/，$(du -sh "$TMP" | cut -f1)"
+echo "-- 共 $DUMPED 個資料庫 + $FILES 份檔案目錄，$(du -sh "$TMP" | cut -f1)"
 [ -n "$SKIPPED" ] && echo "-- 略過（主機上沒有）：$SKIPPED"
 
 if [ "$DRY_RUN" = "1" ]; then

@@ -409,6 +409,17 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
   相關的待討論題目：大公司在「各團隊獨立開發模組」的架構下，是怎麼要求開發者把 Sentry
   併進自己的專案的（強制？模板？共用套件？）——這跟 C1 抽共用套件是同一類問題。
 
+- **註冊表被繞過 PR 直接在主機上改**（2026-08-26 發現）。主機的 `~/tpass/tpass-registry`
+  是**部署用的 clone**，卻被當成作者的工作區：有一個沒推上去的本機 commit（註冊 meeting 與
+  一個尚不存在的服務 `csm`）加上未 commit 的修改，導致 `deploy.sh` 的 `git pull --ff-only`
+  直接失敗、部署停擺。那份 meeting 條目的 `icon: "CalendarDays"` **不在 portal 的圖示白名單裡**
+  （`tpass-portal/src/config/icons.ts`），下次部署 portal 會啟動即炸——PR CI 會擋下這種錯，
+  直接在主機改不會。當時的處置：把那個 commit 存成 `hailey-registry-20260826` 分支 + stash，
+  再把 clone 對回 `origin/main`。**該做而沒做的是讓這件事不可能發生**（主機那份設成唯讀 /
+  在 `04-registry-sop.md` 點名 / B2 的分支保護）。
+- **`csm`（課表拉取器）還沒進註冊表**。上面那個本機 commit 裡有它，但服務本身在主機上
+  還不存在（沒目錄、port 30088 沒在聽），且 port 不在其他服務的 3000–3009 區段。
+  要納管就開一個正式 PR，順便決定 port 是否改成 3010。
 - `tpass-appeals/src/config/admin.ts:13-16` 的 `isAdmin` 扁平化——任何 moderator
   都能讀全部申訴，沒有分案隔離。（比 A4 大，需要權限模型討論。）
 - 沒有任何資料保留政策。學生三年前的問卷與申訴永遠躺在主機上，畢業生資料無處理流程。
@@ -463,7 +474,44 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       在那之前「cron 根本沒觸發」仍然只有主動跑 `tpass status` 才看得到。
       ② **新服務上線要手動加 monitor**，沒有自動化；`tpass status` 的 ⚠️ 是補救不是預防（見 C3）。
       ③ UptimeRobot 帳號同樣**不隨個人畢業**才安全（見 C5）。
-- [ ] **A3 `notes` 去留決定 ← 下一項**
+- [x] A3 `notes` 去留決定（2026-08-26 完成）→ **選「修好上線」**
+      決定的依據：repo 已從 `Ray1020-a` 轉進 `tschoolsu` 組織，原本最貴的障礙
+      （要 commit 進別人的 repo）消失了。資料量很小（2 篇筆記、0 協作者、1 個測試 PDF），
+      但站本來就活著、驗章四鐵則齊全，關掉不會比修好便宜。
+      **做了什麼**：`tschoolsu/tpass-notes#1`（補 `pnpm-lock.yaml`、刪 `package-lock.json`、
+      刪自帶的 `ecosystem.config.js`、補 `pnpm.onlyBuiltDependencies`）、
+      `tschoolsu/tpass-notes#2`（tsconfig exclude `node_modules.npm-bak`）、
+      `tpass-registry#4`（notes 翻 `deployed:true` + **meeting 納管**）、
+      主機一次 root 操作（`chown` + 從 root 的 pm2 刪掉 `tpass-notes` 釋出 3007）、
+      `tpass deploy notes` + `tpass deploy portal`。
+      現在：pm2 app 名是 `notes`（不是 `tpass-notes`）、屬部署帳號、綁 `127.0.0.1:3007`
+      （之前綁 `*`）、`tpass status` 全綠、大廳有「共編筆記」卡片。
+      ⚠️ **計畫原文有兩處是錯的，已在執行中修正**：
+      ① 順序反了——`deploy/ecosystem.config.js:28` 只收 `deployed:true`，
+      **必須先 merge registry PR 翻 true 才 deploy 得動**，不是「deploy 成功後再翻」。
+      ② **auth 不用重新部署**——發證白名單只看 `enabled`，notes 本來就是 true。只有 portal 要。
+      🕳 **踩到的坑（下一個服務照樣會踩）**：`deploy.sh` 從 npm 切 pnpm 時會把舊
+      `node_modules` 備份成 `node_modules.npm-bak` 留在專案根目錄。notes 的 tsconfig
+      只 exclude 了 `node_modules`，於是 **7 月那份 npm 的 `next` 型別宣告被一起拉進
+      型別檢查**，把 `useSearchParams()` 蓋成可為 null，build 在主機上掛掉而本機完全正常。
+      另外五個服務的 tsconfig 早就有 `node_modules.npm-bak` 這一行，notes 是唯一漏的。
+      **meeting 上線時會再踩一次。**
+      **留給下一個人的三件事**：
+      ① **notes 的 UptimeRobot monitor 要手動加**（`https://notes.tschoolsu.org/`，
+      **接受碼 2xx+3xx**，未登入回 307）。加之前 `tpass status` 的「== 監控 ==」會一直
+      ⚠️ 標它——那正是 A2 寫那段的理由。
+      ② **meeting 只做了「納管」，沒上線**（`enabled:true` / `deployed:false`）。
+      `enabled:true` 的實質效果是**修好它的登入**——在此之前它不在註冊表，
+      auth 的 authorize 一律回 `unknown-service`，那個服務從 8/26 上線起登入就是壞的。
+      剩下的上線步驟與 notes 完全相同：轉移目錄所有權（root）、從 root 的 pm2 交給部署帳號、
+      補 `pnpm-lock.yaml`、刪自帶 `ecosystem.config.js`、tsconfig exclude `node_modules.npm-bak`、
+      翻 `deployed:true`、加 monitor。**它還在開發中，別急著翻。**
+      ③ 主機上服務 repo 的 `origin` 多半還指著**轉移前的舊擁有者**（`YC815/…`），靠 GitHub
+      轉址在動。notes 這次已改成正式網址；其他的沒動——哪天 GitHub 停掉轉址就會一起壞。
+      🔧 **順手修的**：`deploy/backup.sh` 的檔案備份規則從只收 `<dir>/data/` 擴成
+      `data/` 與 `uploads/`（`STATE_DIRS`）。notes 與 meeting 都把使用者上傳檔寫在
+      `uploads/`，原本**一份都沒有備份**。同時把 meeting 主機上的 `.env` 改名成 `.env.local`
+      ——`backup.sh` 與 `deploy.sh` 都只認後者，不改名它的資料庫永遠不會進備份。
 - [ ] A4 Discord 通知去識別化
 - [ ] A5 根網域轉址
 - [ ] B1 部署搬進 GitHub Actions

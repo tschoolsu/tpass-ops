@@ -471,11 +471,14 @@ tpass backup run          # 驗證：healthchecks 那頁應該立刻變綠
 ## 6.1 備份與還原
 
 **排程**：主機 cron 每日 04:15 跑 `~/tpass/deploy/backup.sh`，把每個資料庫的 `pg_dump`
-與各服務的 `data/` 目錄傳到主機以外的備份庫（rclone remote，目前是 Google Drive）。
+與各服務的檔案狀態目錄傳到主機以外的備份庫（rclone remote，目前是 Google Drive）。
 日備留 7 份、週備（週日那份）留 4 份。
 
 **備份什麼是從註冊表派生的**，不是寫死的清單：`enabled && db != null` 的服務各一個 dump，
-加上任何 `enabled` 服務底下非空的 `<dir>/data/` 目錄。新服務上線後**自動被涵蓋**，不必改腳本。
+加上任何 `enabled` 服務底下非空的 `<dir>/data/` 與 `<dir>/uploads/`。新服務上線後
+**自動被涵蓋**，不必改腳本。收兩個目錄名是因為 `data/` 是本專案的慣例（buddy 的
+`pairs.json`），而後來納管的 notes 與 meeting 把使用者上傳檔寫在 `uploads/`；
+要再收第三個名字就改 `backup.sh` 的 `STATE_DIRS`。
 
 ```bash
 tpass status                          # 尾巴會顯示「最後備份 X 小時前」

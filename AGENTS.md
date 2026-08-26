@@ -27,16 +27,22 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-form/` | 問卷系統（T-Form） | `https://form.lvh.me:3002` | 問卷建構/填寫/匯出，PostgreSQL+Prisma。 |
 | `tpass-cross_grade_messages/` | 跨屆代傳（T-Msg） | `https://msg.lvh.me:3003` | 訊息廣播到 Google Chat webhook，PostgreSQL+Prisma。 |
 | `tpass-appeals/` | 申訴系統（T-Appeals） | `https://appeals.lvh.me:3004` | 申訴收件 + Discord 通知，PostgreSQL+Prisma。 |
+| `tpass-notes/` | 共編筆記（T-Notes） | `https://notes.lvh.me:3007` | 學術部共編筆記，**不是 Prisma**——直接用 `pg` + `POSTGRES_URL`，schema 由服務自己 `CREATE TABLE IF NOT EXISTS`（註冊表 `strategy:"none"`）。2026-08-26 納入 ops 部署管道並上線。 |
+| `tpass-buddy/` | 直屬配對（T-Buddy） | `https://buddy.lvh.me:3008` | 115 直屬活動限定的臨時服務，無資料庫（狀態是 gitignored 的 `data/pairs.json`）。活動結束就下架。 |
+| `tpass-meeting/` | 會議輔助（T-Meeting） | `https://meeting.lvh.me:3009` | 會議記錄/簽到/表決 + API key，`pg`（`strategy:"none"`）。**線上活著但註冊表是 `deployed:false`**：主機那份 npm 裝、目錄屬 root、自帶 `ecosystem.config.js`，`deploy.sh` 跑不動，目前由 **root 的 pm2** 手動跑。上線步驟見 `docs/specs/2026-08-26-platform-hardening-plan.md` 的 A3 註記。 |
 | `tpass-vote/` | 選舉系統（T-Vote） | `https://vote.lvh.me:3006` | 開發中，尚未上線（註冊表 `deployed:false`）。設計決策見 memory。 |
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
 | `tpass-registry/` | **服務註冊表（唯一真相）** | — | **public repo**，並排 clone。id/目錄/子網域/port/DB 策略/大廳卡片全在 `services.json`；auth 白名單、portal 卡片、pm2、deploy 全部從它派生，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
 | `docs/` | ops 文檔 | — | `handbook/`＝**給部員看、手動同步到團隊 HackMD 的四篇**（服務串接指南 / SSO 合約 / Design System / 註冊表 SOP），索引見 `docs/handbook/README.md`。根目錄留 ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。`docs/specs/` 是跨 repo 功能的實作規格暫存區，不是 ops 文檔。 |
 
-> **git repos**（全在 GitHub **`tschoolsu` 組織**底下，2026-08-01 核對）：
-> **private 只有 `tpass-ops`**（＝頂層本身）；`tpass-registry`、`tpass-auth`、`tpass-portal`、
-> `tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals` 都是 **public**。
+> **git repos**（2026-08-26 核對）：**private 只有 `tpass-ops`**（＝頂層本身）；
+> `tpass-registry`、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、
+> `tpass-appeals`、`tpass-notes`、`tpass-meeting` 都在 **`tschoolsu` 組織**底下且是 **public**。
+> `tpass-buddy` 在 **`YC815`** 個人帳號底下（臨時服務，未轉移）。
 > `tpass-vote` 與 `tpass-directory`（封存）**尚未有 GitHub repo**，只存在於本機。
+> ⚠️ `tpass-notes` 與 `tpass-meeting` 是直接在主機上開發出來的，**本機預設沒有 clone**；
+> 主機上各服務的 `origin` 多半還指著轉移前的舊擁有者（靠 GitHub 轉址在動）。
 > **本機**：全部並排在同一層（`tpass-registry` 與各服務同層），auth / portal 靠
 > `../tpass-registry/services.json` 這條相對路徑找註冊表。
 > **主機**（2026-08-03 起分岔）：ops repo + `tpass-registry` 在 `~/tpass`，**各服務 repo 一律在
