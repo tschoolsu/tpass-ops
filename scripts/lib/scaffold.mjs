@@ -73,7 +73,7 @@ export async function newService(idArg) {
    merge 之後，auth 的發證白名單與 portal 的大廳卡片會自動包含 ${id}。
    （portal 卡片還要等 deployed 翻 true，見第 5 步）
 
-2. 建服務 repo，照 docs/NEW-SERVICE.md 串登入（驗章四鐵則）。
+2. 建服務 repo，照 docs/handbook/01-new-service.md 串登入（驗章四鐵則）。
    參考實作：tpass-portal/src/lib/tpass-auth.ts + src/config/portal.ts。
    本機測試： cd ${dir} && pnpm dev   →  ${devUrl}
 

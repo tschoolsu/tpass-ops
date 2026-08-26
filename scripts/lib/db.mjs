@@ -145,7 +145,7 @@ export function dbCreateRemote(id) {
   // 目錄需先在主機 clone —— 否則沒地方寫 DATABASE_URL；先擋，避免建出「role/db 已建但 env 沒寫」的半套。
   const dir = `${serverRoot}/${s.dir}`;
   if (ssh(`test -d ${dir} && echo ok`, { capture: true }).stdout.trim() !== "ok") {
-    console.error(`✗ 主機目錄 ${dir} 不存在——請先在主機 git clone repo 再建 DB（見 docs/NEW-SERVICE.md〈部署〉）`);
+    console.error(`✗ 主機目錄 ${dir} 不存在——請先在主機 git clone repo 再建 DB（見 docs/handbook/01-new-service.md〈部署〉）`);
     process.exit(2);
   }
   const { user, name } = s.db;

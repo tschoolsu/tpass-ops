@@ -31,7 +31,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
 | `tpass-registry/` | **服務註冊表（唯一真相）** | — | **public repo**，並排 clone。id/目錄/子網域/port/DB 策略/大廳卡片全在 `services.json`；auth 白名單、portal 卡片、pm2、deploy 全部從它派生，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
-| `docs/` | ops 文檔（**只有三份**） | — | NEW-SERVICE（開新服務＋串登入＋上線）/ ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。`docs/specs/` 例外：跨 repo 功能的實作規格暫存區，不是 ops 文檔。 |
+| `docs/` | ops 文檔 | — | `handbook/`＝**給部員看、手動同步到團隊 HackMD 的四篇**（服務串接指南 / SSO 合約 / Design System / 註冊表 SOP），索引見 `docs/handbook/README.md`。根目錄留 ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。`docs/specs/` 是跨 repo 功能的實作規格暫存區，不是 ops 文檔。 |
 
 > **git repos**（全在 GitHub **`tschoolsu` 組織**底下，2026-08-01 核對）：
 > **private 只有 `tpass-ops`**（＝頂層本身）；`tpass-registry`、`tpass-auth`、`tpass-portal`、
@@ -60,11 +60,11 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | 你想知道… | 權威文件 | 狀態 |
 | --- | --- | --- |
 | **登入怎麼串**（契約：authorize/callback、四鐵則、payload、錯誤碼、各語言範本） | `tpass-auth/INTEGRATION.md` | 🟢 **權威** |
-| **開一個新服務 → 串登入 → 上線**（部員動手版，Next.js，自給自足） | `docs/NEW-SERVICE.md` | 🟢 權威（人類讀這份） |
+| **開一個新服務 → 串登入 → 上線**（部員動手版，Next.js，自給自足） | `docs/handbook/01-new-service.md` | 🟢 權威（人類讀這份） |
 | **驗章參考實作**（直接照抄） | `tpass-portal/src/lib/tpass-auth.ts` + `src/config/portal.ts` + `src/app/api/auth/{callback,logout}/route.ts` | 🟢 權威 |
 | **開發 / 部署 / 主機 / nginx / Cloudflare / 排錯**（自給自足） | `docs/ONBOARDING.md`（`tpass` CLI 為唯一入口） | 🟢 權威 |
 | **服務清單 / port / DB 策略 / 大廳卡片** | `tpass-registry/services.json`（唯一真相，public repo）；欄位定義見該 repo `README.md` | 🟢 權威 |
-| **新增服務** | 對 `tpass-registry` 開 PR；流程見 `docs/NEW-SERVICE.md`〈服務註冊〉 | 🟢 權威 |
+| **改服務註冊表**（新增服務 / 改欄位 / 上線翻 `deployed` / 主機紅線 / 改完誰重部署） | `docs/handbook/04-registry-sop.md` | 🟢 權威 |
 | **安全審查發現與狀態** | `docs/SECURITY-REVIEW.md` | 🟢 權威 |
 | **權限怎麼管**（role/restriction、ban/warning、panel 操作） | auth 的 `/admin` panel（實際管理介面）＋ `tpass-auth/INTEGRATION.md` §3（claim 契約與生效時間） | 🟢 權威 |
 | **UI 風格 / design system** | `tpass-portal/docs/design.md` | 🟢 權威 |

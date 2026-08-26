@@ -1,3 +1,8 @@
+---
+title: T-Pass 服務串接指南
+tags: T-Pass, 手冊
+---
+
 # T-Pass 服務串接指南
 
 > 在 TSchool 平台建立新服務，並接入 T-Pass 單一登入（SSO）的完整指引。
@@ -129,6 +134,8 @@ mkdir -p ~/tpass && cd ~/tpass
 以下所有 `git clone` 都在這個資料夾底下執行。
 
 ### 服務註冊
+
+> 註冊表的完整規矩（改既有欄位、上線翻牌時機、主機紅線、改完誰要重部署）見另一篇《T-Pass 服務註冊表 SOP》。這裡只講你現在要做的那一步。
 
 **整個註冊只有這一步：對 `tschoolsu/tpass-registry` 開一個 PR，在 `services.json` 加一個物件。**
 
