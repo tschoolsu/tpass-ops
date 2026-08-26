@@ -446,8 +446,66 @@ remote 名稱、Discord webhook、保留天數。Google 的 OAuth token 在主�
 ### 已知限制
 
 - **備份沒有加密**。風險是「Google 帳號或 rclone token 外洩 = 全校申訴內容外洩」。
-- **備份存在維運者的 Google 帳號裡**——畢業帳號停用前必須搬家。**寫進交接清單。**
+- **備份存在 `studentcouncil@` 的「我的雲端硬碟」**（官方帳號，不隨個人畢業消失；見 §6.2）。
+  改用**共用雲端硬碟**（rclone 的 `team_drive`）會更穩——不綁任何單一帳號。尚未做。
 - **只有每日全量，沒有 PITR**。最壞情況是丟失最近 24 小時的資料。
+
+---
+
+## 6.2 Google Cloud 專案與 OAuth 憑證
+
+T-Pass 用到 Google 的兩件事**在同一個 Cloud 專案**：`tpass`（編號 `440951527365`），
+擁有者是 `studentcouncil@tschool.tp.edu.tw`。**刻意掛在學生會官方帳號**——個人學生帳號
+會隨畢業停用，專案與備份會一起消失。（2026-08-26 從個人帳號的 `tpass-dev` 專案搬過來。）
+
+| 用途 | OAuth client 類型 | 憑證放哪 |
+| --- | --- | --- |
+| auth 的 Google 登入 | 網頁應用程式 | `tpass-auth/.env.local` 的 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`（主機與本機各一份，值相同） |
+| 每日備份寫入 Drive | 桌面應用程式（rclone） | `~/.config/rclone/rclone.conf`（主機與本機各一份，600） |
+
+同意畫面（Google 驗證平台 →「目標對象」）必須維持 **內部（Internal）**。三個理由：
+
+- 外部＋「測試中」的 app，refresh token **7 天到期** → 每日備份會在某天靜默死掉
+- 外部有 100 名測試使用者上限，全校師生一定爆
+- 內部的涵蓋範圍正好等於 `AUTH_ALLOWED_EMAIL_DOMAIN`（`tschool.tp.edu.tw`），Google 端與 auth 自己的檢查同一條線
+
+代價：**校外帳號（畢業生 gmail）在 Google 那層就被擋**。要開放校友必須改回外部並送審。
+
+### redirect URI（改網域時唯一要同步的地方）
+
+redirect URI 不是 env，是程式碼推導的：`${AUTH_BASE_URL}/api/auth/callback/google`
+（`tpass-auth/src/config/auth.ts`）。後台登記的必須**一字不差**，目前兩條：
+
+```
+https://auth.tschoolsu.org/api/auth/callback/google      # 主機
+https://auth.lvh.me:3000/api/auth/callback/google        # 本機 dev
+```
+
+### 換掉 auth 的 OAuth 憑證
+
+**OAuth client 不能跨專案搬移**——換專案就是建新 client 再換 env。
+
+```bash
+# 0. 在目標專案建「網頁應用程式」client，填上面兩條 redirect URI
+tpass env get auth --show | grep GOOGLE                              # 1. 先抄舊值，回滾要用
+tpass env set auth GOOGLE_CLIENT_ID=<新的>                           # 2.
+printf '%s' '<新密鑰>' | tpass env set auth GOOGLE_CLIENT_SECRET --stdin  # 3. 值不進 shell 歷史
+tpass deploy auth                                                    # 4.
+# 5. 無痕視窗開 https://portal.tschoolsu.org 跑一次登入
+# 6. 本機 tpass-auth/.env.local 換成同一組
+# 7. 驗證通過後才停用舊 client / 舊專案
+```
+
+**已發出的 JWT 不受影響**——token 是 auth 自己用 EdDSA 簽的，Google 只在登入那一刻參與。
+使用者最多下次登入多按一次同意畫面。回滾＝把第 1 步抄的舊值寫回去再 `tpass deploy auth`。
+
+### 動 Google 後台時的紅線
+
+- ❌ 不要刪除或重新產生 rclone 那組 client 的密鑰 → 現有 refresh token 立刻作廢，**備份靜默死掉**
+- ❌ 不要把 `drive.file` 從同意畫面的「資料存取權」拿掉 → 同上
+- ❌ 不要把同意畫面改回「外部」→ 見上面三個理由
+- ⚠️ `drive.file` 是 **per-client × per-user**：換 client 或換授權帳號後，**新 token 看不到舊的備份檔**，
+  舊檔會留在原帳號的 Drive 直到手動刪。要換 rclone 授權，先用舊設定 `rclone purge` 清乾淨再換。
 
 ---
 
@@ -457,6 +515,9 @@ remote 名稱、Discord webhook、保留天數。Google 的 OAuth token 在主�
 | --- | --- |
 | `tpass status` 說「超過 30 小時沒備份」 | cron 沒跑或腳本掛了。`scripts/ssh.sh 'crontab -l'` 確認排程還在，再看 `scripts/ssh.sh 'tail -50 ~/tpass-backup.log'` |
 | Discord 說備份失敗 | 訊息裡有卡住的步驟。最常見是 rclone 的 Google token 過期 → 本機 `rclone config reconnect tpass-backup:` 後 `tpass backup setup` 重搬設定 |
+| 登入噴 `redirect_uri_mismatch` | Google 後台登記的 redirect URI 跟 `${AUTH_BASE_URL}/api/auth/callback/google` 不一致（注意結尾斜線、http/https）。見 §6.2 |
+| 登入噴 `invalid_client` | `GOOGLE_CLIENT_ID/SECRET` 貼錯，或兩者不是同一個專案的。`tpass env get auth --show \| grep GOOGLE` 比對 |
+| 登入被 `access_blocked` / 組織政策擋下 | 同意畫面不是「內部」，或登入者不在 `tschool.tp.edu.tw`。見 §6.2 |
 | 本機登入後一直被踢回登入頁 | dev 指令少了 `NODE_TLS_REJECT_UNAUTHORIZED=0`，消費端後端抓不到 auth 的 JWKS（見 §0 的 ⚠️）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`。**主機上出現這症狀跟 TLS 無關**，去查 `iss` / `aud` |
 | `tpass deploy` 報 git 錯誤 | 主機 `~/tpass` 工作樹不乾淨（主機上不該手改檔案）。`scripts/ssh.sh 'git -C ~/tpass status'` 看 |
 | `tpass deploy` 健康檢查失敗 | `tpass logs <svc>` 看啟動錯誤；最常見是 env 缺值或 DB 連不上 |
