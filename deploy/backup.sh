@@ -37,6 +37,10 @@ if [ -f "$LOG" ] && [ "$(wc -l < "$LOG")" -gt 4000 ]; then
   printf '%s\n' "$(tail -n 2000 "$LOG")" > "$LOG"
 fi
 
+# 輸出同時進 log 與 stdout。cron 那條路徑本來就 >> log，但手動跑（tpass backup run）不會——
+# 而失敗告警要引用 log 的最後幾行，少了它 Discord 訊息就只剩「失敗了」三個字。
+exec > >(tee -a "$LOG") 2>&1
+
 [ -f "$REG" ] || { echo "❌ 找不到 $REG" >&2; exit 1; }
 [ -f "$CONF" ] || {
   echo "❌ 缺 $CONF —— cp deploy/backup.env.example deploy/backup.env 並填值（不進 git）" >&2

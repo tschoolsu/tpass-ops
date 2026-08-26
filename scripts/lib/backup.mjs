@@ -215,8 +215,10 @@ export async function backupRestore(date, id) {
 export function installCron() {
   console.log("▶ 裝主機 cron（每日 04:15）");
   // 先濾掉舊的同名 entry 再寫回 —— 重跑不會長出第二條。
+  // 單引號包住，讓 $HOME 原封不動進 crontab（雙引號會在寫入當下就被遠端 shell 展開成
+  // 絕對路徑，把帳號名寫死進去）。cron 執行時由 /bin/sh 展開，效果相同但不綁帳號。
   const cmd =
-    `( crontab -l 2>/dev/null | grep -v 'deploy/backup.sh' || true; echo ${JSON.stringify(CRON_ENTRY)} ) | crontab - && crontab -l`;
+    `( crontab -l 2>/dev/null | grep -v 'deploy/backup.sh' || true; printf '%s\\n' '${CRON_ENTRY}' ) | crontab - && crontab -l`;
   const r = ssh(cmd);
   if (r.status !== 0) {
     console.error("✗ 安裝失敗");
