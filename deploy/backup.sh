@@ -51,6 +51,7 @@ exec > >(tee -a "$LOG") 2>&1
 . "$CONF"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
 BACKUP_DISCORD_WEBHOOK="${BACKUP_DISCORD_WEBHOOK:-}"
+BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-}"
 KEEP_DAILY="${BACKUP_KEEP_DAILY:-7d}"
 KEEP_WEEKLY="${BACKUP_KEEP_WEEKLY:-28d}"
 [ -n "$BACKUP_REMOTE" ] || { echo "❌ $CONF 缺 BACKUP_REMOTE" >&2; exit 1; }
@@ -230,5 +231,16 @@ jq -n \
   --argjson bytes "$TOTAL" \
   '{at:$at, remote:$remote, databases:$databases, archives:$archives, bytes:$bytes}' \
   > "$STATUS_FILE"
+
+# ---------- 7. heartbeat ----------
+# 第三道防線。前兩道都擋不住「cron 根本沒觸發」——腳本從未執行，Discord 不會響，
+# 而狀態檔的時間戳停住不動要人主動去看。死人開關等的是「好消息沒來」，不是壞消息。
+# 超過設定的週期沒收到這個 ping，UptimeRobot 就叫。設定見 docs/ONBOARDING.md §6「線上監控與告警」。
+# ping 失敗不能算備份失敗（檔案已經安全上去了）→ 用 || 兜住，不要觸發 ERR trap。
+# 而且漏 ping 也不會變成靜默：監控那頭收不到，本來就會叫，方向是安全的。
+if [ -n "$BACKUP_HEARTBEAT_URL" ]; then
+  curl -sS -m 15 -o /dev/null "$BACKUP_HEARTBEAT_URL" \
+    || echo "⚠️  heartbeat ping 失敗（備份本身已成功，監控那頭會因此告警）" >&2
+fi
 
 echo "✅ 備份完成 → $BACKUP_REMOTE/daily/$STAMP"

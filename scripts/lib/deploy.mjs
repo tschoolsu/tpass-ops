@@ -15,7 +15,7 @@ import {
   services,
 } from "./registry.mjs";
 
-function hostEnv() {
+export function hostEnv() {
   const candidates = [join(ROOT, "deploy", "host.env"), join(OPS_ROOT, "deploy", "host.env")];
   const file = candidates.find(existsSync);
   if (!file) {

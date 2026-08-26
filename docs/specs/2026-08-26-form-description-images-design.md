@@ -165,15 +165,18 @@ asset id 是 cuid，不可猜。刻意**不**做 per-form 授權——那會讓�
 
 ## 8. 儲存後端與已知取捨
 
-沿用 `src/lib/storage.ts` 的 `local` driver（`./.uploads`）。主機的 `deploy.sh` 是
+沿用 `src/lib/storage.ts` 的 `local` driver。落點是 `<服務目錄>/data/uploads`——
+`deploy/backup.sh` 的通用規則是「打包每個 enabled 服務的 `<dir>/data/`」，寫在那底下
+就自動被每日備份帶走，不必為插圖在備份腳本裡開特例。主機的 `deploy.sh` 是
 `git pull --ff-only`，不會清掉這個目錄。
 
 三項已知取捨，都是刻意接受的：
 
 1. **綁單機**。圖片存在主機檔案系統，將來要多機或搬家得先把 `storage.ts` 的 `s3`
    driver 補完（目前會直接丟錯）。現在是單機，不是問題。
-2. **`.uploads` 沒被備份**。`deploy/backup.sh` 只備 DB，主機重灌圖片全丟。
-   這是 ops repo 的待辦，**不在本次實作範圍**，另案處理。
+2. ~~**`.uploads` 沒被備份**~~ — 已解決：儲存落點從 `.uploads` 改成 `data/uploads`，
+   落進 `backup.sh` 既有的 `<dir>/data/` 規則裡。順帶補上了既有「回覆附件」的同一個
+   備份缺口（那批檔案先前也不在備份範圍內）。
 3. **HEIC 可能失敗**。sharp 預設沒編 libheif，iPhone 直傳 HEIC 會轉檔失敗。實務上
    iPhone 走瀏覽器 file input 多半自動轉 JPEG，但不保證。失敗回 `415` 配人話訊息，
    不為了它去編 libheif。

@@ -366,11 +366,22 @@ scripts/ssh.sh '<cmd>'      # 跑單一指令
 
 ## 6. 監控
 
+兩層，擋的是不同的東西：
+
+| 層 | 誰在看 | 擋什麼 |
+| --- | --- | --- |
+| **UptimeRobot**（外部，5 分鐘一次，全天無休） | 機器 | 站掛了。**主機整台死掉時只有它叫得出來**——跑在主機上的東西都跟著死了。 |
+| **`tpass status`**（本機發動，人主動跑） | 人 | 看得比較深：pm2 重啟數、記憶體、程式碼版本落後幾個 commit、最後備份時間、監控覆蓋率 |
+
+前者回答「有沒有事」，後者回答「到底怎麼了」。**收到告警之後跑的是後者。**
+
 ```bash
 scripts/tpass status
 # == 本機 dev ==        port 探測，看本機有沒有在跑
 # == 主機 pm2 ==        online / ↺重啟數 / 記憶體 / uptime
 # == 主機程式碼版本 ==   各服務 HEAD vs origin/main
+# == 監控 ==            UptimeRobot 各 monitor 的 up/down + 漏掉監控的服務
+# == 備份 ==            最後一次成功備份是多久以前
 
 scripts/tpass logs form        # 最近 100 行
 scripts/tpass logs form -f     # 跟隨
@@ -385,6 +396,41 @@ scripts/tpass logs form -f     # 跟隨
 | 🟠 落後 origin/main | GitHub 有新 merge 還沒上線 | `tpass deploy <svc>` |
 | 🟢 | HEAD = origin/main | 沒事 |
 | ↺ 數字很大但穩定成長 | **正常**——每次 deploy reload 都會 +1 | 不用管 |
+| ⚠️ `<svc>` 沒有監控 | registry 標 `deployed` 但 UptimeRobot 上沒有對應 monitor | 去補一個（見下） |
+| 🔴 超過 30 小時沒備份 | cron 沒觸發 | §6.1 |
+
+### 線上監控與告警（UptimeRobot）
+
+免費方案，50 個 monitor、5 分鐘間隔。**帳號刻意開在學生會官方信箱**，理由同 §6.2 的
+Google 專案——個人帳號會隨畢業停用，監控跟著消失。
+
+**有哪些 monitor**（清單真相＝註冊表：每個 `deployed:true` 的服務一個 HTTP monitor）：
+
+| monitor | 網址 | 正常回什麼 |
+| --- | --- | --- |
+| auth / portal / form / msg / appeals / buddy | `https://<subdomain>.tschoolsu.org/` | auth 回 **200**，其餘五個回 **307**（未登入導去 auth） |
+| 備份 heartbeat | 由 UptimeRobot 給的 ping URL | 每日 04:15 備份成功時被 ping 一次 |
+
+> ⚠️ **消費端回 307 不是錯誤。** 建 monitor 時務必把「視為 up 的狀態碼」放寬到
+> **2xx + 3xx**（等價於 `deploy.sh` 健康檢查用的「HTTP < 500」）。只收 200 的話
+> 五個服務會全天誤報 down，然後沒人再看告警——假警報比沒有告警更糟。
+
+**告警送到哪**：Email + UptimeRobot 手機 App 推播 + webhook 送到維運 Discord 頻道
+（**沿用 `deploy/backup.env` 的 `BACKUP_DISCORD_WEBHOOK`，同一條，不必開新的**）。
+
+**heartbeat 是什麼、為什麼需要**：其他 monitor 是 UptimeRobot 主動來打你；heartbeat 反過來，
+是**你去打它**，超過設定週期沒收到就告警。備份的週期設 **25 小時**（cron 是每日 04:15，留 1 小時餘裕）。
+擋的是備份的第三種失敗——腳本**從未執行**（crontab 被清、cron 死了、主機重開沒起來）。
+那種時候 Discord 不會響，因為沒有東西發得出告警。**死人開關等的是「好消息沒來」。**
+ping 由 `deploy/backup.sh` 最後一段發出，URL 填在主機的 `deploy/backup.env` 的 `BACKUP_HEARTBEAT_URL`。
+
+**`tpass status` 怎麼看得到監控**：填本機 `deploy/host.env` 的 `UPTIMEROBOT_API_KEY`（唯讀 key，
+gitignored，**不放主機**——這是本機工具用的）。沒填就整段安靜跳過，不是錯誤。
+它做一件 UptimeRobot 網頁做不到的事：**拿 monitor 清單對照註冊表，抓出「`deployed:true`
+卻沒有人幫它開監控」的服務。**
+
+**新服務上線時要記得加一個 monitor**——沒有自動化。`tpass status` 的 `⚠️ 沒有監控` 是補救，
+預防在 `docs/handbook/04-registry-sop.md` 翻 `deployed:true` 前的檢查表。
 
 ---
 
@@ -436,6 +482,7 @@ pm2 start <svc>
 | --- | --- |
 | Discord webhook（`deploy/backup.env` 的 `BACKUP_DISCORD_WEBHOOK`） | 腳本跑了但失敗 |
 | `tpass status` 的「最後備份 X 小時前」，超過 30 小時標紅 | **cron 根本沒觸發**——webhook 不會響 |
+| UptimeRobot heartbeat（`backup.env` 的 `BACKUP_HEARTBEAT_URL`），25 小時沒收到 ping 就告警 | 同上，但**不必有人主動去看**——主機整台掛掉也算（見 §6「線上監控與告警」） |
 
 ### 設定放哪
 
