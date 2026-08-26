@@ -512,6 +512,11 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       `data/` 與 `uploads/`（`STATE_DIRS`）。notes 與 meeting 都把使用者上傳檔寫在
       `uploads/`，原本**一份都沒有備份**。同時把 meeting 主機上的 `.env` 改名成 `.env.local`
       ——`backup.sh` 與 `deploy.sh` 都只認後者，不改名它的資料庫永遠不會進備份。
+      **已實跑驗證**（2026-08-26，沒等 cron）：6 個資料庫（`t_meeting` 首次入列）
+      + 4 份檔案目錄，備份庫上確認有 `notes-uploads.tar.gz`（1.3M）與
+      `meeting-uploads.tar.gz`（2.8M）。⚠️ **cron 那行不會 `git pull`**
+      （`15 4 * * * cd $HOME/tpass && ./deploy/backup.sh`），所以改完 `backup.sh`
+      必須讓主機的 `~/tpass` 拉一次，否則今晚跑的還是舊規則。
 - [ ] A4 Discord 通知去識別化
 - [ ] A5 根網域轉址
 - [ ] B1 部署搬進 GitHub Actions
