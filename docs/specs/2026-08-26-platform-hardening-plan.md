@@ -553,30 +553,21 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       **留給下一個人的一件事**：**端到端沒實測**——要真人 Google 登入，agent 做不了。
       下次有真實申訴進來時順手確認一眼：訊息裡應該只有姓名·年級、時間、後台連結、
       附件數量，**沒有** email、沒有任何一題的答案、沒有圖。
-- [ ] A5 根網域轉址（2026-08-27 人工設定過，**驗收不通過：apex 是無限轉址迴圈**）
-      `www.tschoolsu.org` ✅ 301 → `https://portal.tschoolsu.org/`（含 `/foo` 也正確落地）。
-      `tschoolsu.org` ❌ 301 → **`https://tschoolsu.org/`（指回自己）**，瀏覽器會拿到
-      `ERR_TOO_MANY_REDIRECTS`。`/foo` → `/foo`，**路徑被保留**——而 www 那條是靜態目標、
-      路徑會被丟掉。兩條行為不同，代表 **apex 命中的是另一條規則**，
-      目標大概是 `concat("https://", http.host, ...)` 之類把 `http.host` 原樣帶回去的
-      動態運算式（或目標主機名少打了 `portal.`）。要看的是 Cloudflare 的
-      Rules → Redirect Rules，確認 apex 那條的 **target host 是 `portal.tschoolsu.org`
-      而不是 `http.host`**，並檢查有沒有殘留的舊 Page Rule 先攔截到。
-      DNS 本身沒問題（apex 與 www 都有 A 記錄指向 Cloudflare）。
-      🔎 **2026-08-27 找到原因**：那條 redirect rule 的目標主機名跟來源一樣——
-      運算式 `(http.host eq "tschoolsu.org")`，動態目標
-      `concat("https://tschoolsu.org", http.request.uri.path)`，**少了 `portal.`**。
-      建議不是修它，是把 apex 與 www 併成一條靜態規則
-      （`http.host in {"tschoolsu.org" "www.tschoolsu.org"}` → 靜態
-      `https://portal.tschoolsu.org`，301），順便消掉兩條規則要手動排「冪次」的特殊情況。
-      apex 底下沒有內容，保留路徑只會變成 portal 的 404，所以用靜態目標、不保留路徑。
-      ⚠️ **驗證一定要用 curl 或無痕視窗。** 301 會被瀏覽器永久快取：部長自己的
-      Chrome 存著舊的正確轉址，連進去一切正常，而新訪客拿到的是迴圈——
-      **瀏覽器測出來的「好了」不算數。**
-      🟢 **UptimeRobot 那顆 monitor 已經開回來，而且正確地紅**——`tpass status` 的
-      「== 監控 ==」顯示 `tschoolsu.org down`。轉址修好它就會轉綠，那才是驗收通過。
-      （值得記一筆：301 在接受碼 2xx+3xx 範圍內，本來擔心迴圈會被判成綠燈；
-      實測 UptimeRobot 會跟著轉址走，所以抓得到。）
+- [x] A5 根網域轉址（2026-08-27 完成）
+      `tschoolsu.org` 與 `www.tschoolsu.org` → **301 → `https://portal.tschoolsu.org/`**，
+      http 與 https、有無路徑一律成立，查詢字串保留（`/?a=1` → `/?a=1`）。
+      🕳 **第一版設錯了，值得記**：規則的目標主機名跟來源一樣——
+      `(http.host eq "tschoolsu.org")` → 動態 `concat("https://tschoolsu.org", …)`，
+      **少了 `portal.`**，apex 轉給自己變成 `ERR_TOO_MANY_REDIRECTS`。
+      ⚠️ **而且瀏覽器測不出來。** 301 會被永久快取：部長自己的 Chrome 存著更早那版
+      正確的轉址，連進去一切正常，只有沒被快取過的路徑（`/foo`）才現形。
+      **這種東西只認 curl 或無痕視窗**，「我點進去是好的」不算驗收。
+      ✅ **最後的做法是併成一條**：`http.host in {"tschoolsu.org" "www.tschoolsu.org"}`
+      → **靜態** `https://portal.tschoolsu.org`，301。原本 apex 一條、www 一條，
+      還要手動排「冪次」讓它們不打架——那是多出來的特殊情況，一條規則就沒有順序問題。
+      用靜態、不保留路徑是刻意的：apex 底下沒有內容，`tschoolsu.org/foo` 保留路徑
+      只會變成 portal 的 404，丟掉路徑直接落到大廳才對。
+      UptimeRobot 的 `tschoolsu.org` monitor 已從 Paused 開回來，等它下一輪翻綠即可。
 - [ ] B1 部署搬進 GitHub Actions
 - [ ] B2 PR 檢查
 - [ ] B3 工具箱發給部員

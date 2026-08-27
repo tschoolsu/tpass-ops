@@ -410,11 +410,18 @@ Google 專案——個人帳號會隨畢業停用，監控跟著消失。
 | monitor | 網址 | 正常回什麼 |
 | --- | --- | --- |
 | auth / portal / form / msg / appeals / buddy | `https://<subdomain>.tschoolsu.org/` | auth 回 **200**，其餘五個回 **307**（未登入導去 auth） |
-| 根網域 | `https://tschoolsu.org/` | **目前 Paused**——根網域還沒有 DNS 記錄（計畫的 A5）。A5 做完再開回來。 |
+| 根網域 | `https://tschoolsu.org/` | **301** → `portal.tschoolsu.org`（2026-08-27 起，見下）。monitor 已從 Paused 開回來。 |
 
 > ⚠️ **消費端回 307 不是錯誤。** 建 monitor 時務必把「視為 up 的狀態碼」放寬到
 > **2xx + 3xx**（等價於 `deploy.sh` 健康檢查用的「HTTP < 500」）。只收 200 的話
 > 五個服務會全天誤報 down，然後沒人再看告警——假警報比沒有告警更糟。
+
+> 🕳 **根網域那條踩過一次坑**：Cloudflare 的 redirect rule 目標主機名寫成跟來源一樣
+> （少了 `portal.`），apex 轉給自己 → `ERR_TOO_MANY_REDIRECTS`。而且**瀏覽器測不出來**
+> ——301 會被永久快取，自己的 Chrome 存著舊的正確轉址所以「連進去正常」，
+> 只有沒被快取過的路徑才現形。**改轉址只認 `curl -I` 或無痕視窗。**
+> 現在是一條規則吃兩個主機名：`http.host in {"tschoolsu.org" "www.tschoolsu.org"}`
+> → 靜態 `https://portal.tschoolsu.org`，301。
 
 **告警送到哪**（兩個管道，七個 monitor 都掛上，`threshold:0` 一偵測到就發）：
 
