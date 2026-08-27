@@ -151,7 +151,11 @@ gh pr create --fill
 | 大廳卡片相關（`portal` 區塊、`deployed`、`subdomain`） | `portal` |
 | 拿不準 | 兩個都部署，不會有壞處 |
 
-部署由維運部員執行（`tpass deploy auth` / `tpass deploy portal`）。
+**部署你自己來，不必找維運**（2026-08-27 起）：
+**[tpass-ops → Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
+輸入 `auth`，再按一次輸入 `portal`。只需要 `tpass-ops` 的寫入權，不需要主機憑證。
+（有主機帳號的人也可以照舊 `tpass deploy auth`，跑的是同一支腳本。）
+
 在主機上單獨 `git pull` 註冊表**不會**生效——程序還跑著舊的那份記憶體。
 
 ---

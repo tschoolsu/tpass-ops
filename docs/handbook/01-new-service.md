@@ -99,12 +99,13 @@ T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負
 
 ## 事前準備
 
-新服務不需要 ops repo，但有兩項資源僅維運成員持有，需先取得後才能開始：
+新服務不需要 clone ops repo，但有幾項權限僅維運成員能給，需先取得後才能開始：
 
 | 項目 | 用途 | 取得時機 |
 | --- | --- | --- |
 | **dev 密鑰包** | 一組僅限本機使用的 Google OAuth client（id + secret），用於本機執行 auth | 開始前（〈本機開發〉會用到） |
-| **主機 ssh 帳號** | 上線時使用。**絕不寫入任何 repo、commit、PR** | 上線時（見〈部署〉） |
+| **主機 ssh 帳號** | 上線時把 repo clone 到主機、寫 `.env.local` 用。**絕不寫入任何 repo、commit、PR** | 上線時（見〈部署〉第 6 步） |
+| **`tpass-ops` 寫入權** | 按部署按鈕用（GitHub Actions）。不含任何主機憑證 | 上線時（見〈部署指令〉） |
 
 > [!IMPORTANT]
 > dev 的 Google client 與正式站是不同的兩組，dev 僅放行 `*.lvh.me` 的回跳網址。即使外流也不影響正式站，但仍不應貼入 Slack 或提交至版本控制。
@@ -917,30 +918,40 @@ pnpm exec tsc --noEmit
 
 主機上已備有 `deploy.sh`。針對指定服務，此腳本會依序執行：**拉取最新註冊表**（`tpass-registry`）→ **env 必填檢查**（缺 key 於 build 前即擋下）→ `git pull` → 視需要 `pnpm install --frozen-lockfile` → `prisma generate` → `pnpm build` → 套用 DB schema → `pm2` zero-downtime reload → **健康檢查**（打服務所在 port，30 秒內未收到健康回應即視為失敗）。
 
-三個服務都要部署，**照這個順序**：
+**發動部署不需要主機憑證**（2026-08-27 起）：
+**[tpass-ops → Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
+在輸入框打服務 id，按 Run。你需要的只是 `tpass-ops` 的寫入權。
 
-```bash
-ssh <帳號>@<主機>                     # 位址與帳號跟維運要。★ 絕不寫進任何 repo / commit / PR
+三個服務都要部署，**照這個順序按三次**：
 
-git clone <你的 repo> /home/service/tpass-lost   # 第 6 步；服務 repo 的家（ops repo 在 ~/tpass，兩層分開）
-
-cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身）；註冊表由 deploy.sh 自己拉
-
-./deploy/deploy.sh lost               # ① 你的服務首次啟動
-./deploy/deploy.sh auth               # ② 發證白名單納入 lost（否則使用者會被導去 /service-error）
-./deploy/deploy.sh portal             # ③ 大廳卡片出現
-```
+| 順序 | 輸入 | 為什麼不能省 |
+| --- | --- | --- |
+| ① | `lost` | 你的服務首次啟動 |
+| ② | `auth` | 發證白名單納入 `lost`，否則使用者會被導去 `/service-error` |
+| ③ | `portal` | 大廳卡片出現 |
 
 ②③ 不能省略：auth 與 portal 是在 **build 時**把註冊表烤進去的，不重新部署就不會知道有你這號人物。
 
-查看狀態與 log（皆於主機上執行）：
+每次執行的 log 就是 `deploy.sh` 的完整輸出——env 必填檢查、`📌 部署版本：<sha>`、健康檢查結果。
+**部署失敗時錯誤訊息就在那頁，不必進主機。**
+
+> [!WARNING]
+> **按鈕解決的是「部署」，不是「第一次把 repo 放上主機」。**
+> 上面那張表的第 6 步（`git clone` 到 `/home/service/tpass-lost` + 寫 `.env.local`）
+> 仍然需要主機 ssh，跟維運要。同理，`pm2 status` / `pm2 logs` 也還在主機上。
+> 你的服務起不來時，Actions log 的健康檢查失敗訊息會告訴你去找誰看 log。
+
+**Rollback**：於 repo 執行 `git revert` 產生新 commit → merge 進 main → 再按一次 Run workflow 輸入 `lost`，不需特殊機制。build 失敗時舊版程序不受影響、不會停機——`deploy.sh` 採先 build 成功才 reload 的策略。
+
+#### 逃生路徑：主機上直接跑
+
+GitHub 掛了、或你本來就有主機帳號時：
 
 ```bash
-pm2 status                 # 所有服務活著沒
-pm2 logs lost --lines 100  # 你的服務的錯誤
+ssh <帳號>@<主機>                     # 位址與帳號跟維運要。★ 絕不寫進任何 repo / commit / PR
+cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身）；註冊表由 deploy.sh 自己拉
+./deploy/deploy.sh lost               # 跟按鈕跑的是同一支腳本
 ```
-
-**Rollback**：於 repo 執行 `git revert` 產生新 commit → merge 進 main → 重新執行 `./deploy/deploy.sh lost`，不需特殊機制。build 失敗時舊版程序不受影響、不會停機——`deploy.sh` 採先 build 成功才 reload 的策略。
 
 ## 疑難排解
 
