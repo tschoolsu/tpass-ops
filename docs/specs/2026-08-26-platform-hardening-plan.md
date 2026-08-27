@@ -135,7 +135,9 @@
 #### A4 — Discord 通知拿掉申訴人實名
 
 **為什麼**：`tpass-appeals/src/lib/discord.ts` 把每筆申訴開成一個 Discord thread，
-圖片附件直接以 multipart 上傳；2026-08-24 那筆 commit 讓通知本體寫出申訴人是誰。
+通知裡有姓名（thread 標題）、年級（embed author，`76726d4` 加的）、email（footer）、
+**申訴全文**（embed description）與**圖片原檔**（multipart 直送 Discord CDN）。
+後三項從初版 `1b0a94d` 就在了，不是 8/24 那筆 commit 造成的。
 **誰在那個頻道，誰就看得到全校學生的申訴全文與實名**——完全在 T-Pass 的權限模型與
 `AuditLog` 之外。申訴內容通常含糾紛細節與他人姓名。
 
@@ -517,7 +519,30 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       `meeting-uploads.tar.gz`（2.8M）。⚠️ **cron 那行不會 `git pull`**
       （`15 4 * * * cd $HOME/tpass && ./deploy/backup.sh`），所以改完 `backup.sh`
       必須讓主機的 `~/tpass` 拉一次，否則今晚跑的還是舊規則。
-- [ ] A4 Discord 通知去識別化
+- [x] A4 Discord 通知去識別化（2026-08-26 完成，**換頻道那步待部長操作**）
+      🔴 **執行時才問出來的關鍵事實：那個 webhook 接的是「全體學生會」頻道。**
+      所以這不是隱私潔癖——**申訴的對象很可能就是學生會或其幹部，潛在被申訴人本人
+      就坐在收件頻道裡**，即時看到申訴人姓名、全文與照片。而 `src/app/actions.ts:3`
+      寫著「一律具名，不做匿名分支」：既然強制學生具名，就必須保證他具名的對象是承辦人。
+      這一項的嚴重度比計畫原本估的高，**下次排序時 A4 應該排在 A5 前面**。
+      **程式碼改了什麼**（`tpass-appeals`）：Discord 通知只剩
+      thread 標題（姓名+時間）+ embed author（姓名·年級）+ 後台深連結 + 附件「數量」。
+      拿掉 email（footer）、申訴全文（description）、圖片附件（整條 multipart 路徑
+      連同 `collectImageAttachments` 一起刪）。`postAppealToDiscord` 的簽名縮成
+      `(webhookUrl, appealUrl, respondent, attachmentCount)`——**不讀 env，維持純格式化**，
+      深連結由 `actions.ts` 用既有的 `authConfig.selfUrl` 組（沒有新增 env）。
+      `prisma.appeal.create()` 的回傳值原本沒接，改成接住拿 id。
+      `lib/storage.ts` 與 `lib/image.ts` 沒動——後台取檔與縮圖還在用。
+      測試從 8 個改成 10 個，其中一個**直接對整包 request body 斷言**找不到 email 與內容字串
+      （繞過欄位結構，之後誰加了什麼欄位都擋得住）。`lint` / `tsc` / `test` 全過。
+      **留給部長的三件事**：
+      ① **最重要的那一步是零程式碼的**：在 Discord 開一個只有申訴承辦人的私密頻道，
+      到 `/admin/settings` 把 webhook 換掉。設定存在 DB 單例列（`src/lib/settings.ts`），
+      **不用改 code、不用部署**。程式碼那半是治標，防止下一任又把 webhook 貼回大頻道。
+      ② **端到端沒實測**——要真人 Google 登入 + 一個真的 webhook，agent 做不了。
+      部署後送一筆含附件的測試申訴，確認訊息裡沒有 email、沒有任何一題的答案、沒有圖。
+      ③ **已經流出去的沒有回收**。那個頻道裡過去所有申訴 thread 仍含全文與照片，
+      要不要清、誰來清，是獨立的決定。
 - [ ] A5 根網域轉址
 - [ ] B1 部署搬進 GitHub Actions
 - [ ] B2 PR 檢查
