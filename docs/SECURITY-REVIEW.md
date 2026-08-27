@@ -65,6 +65,18 @@ JWT 改帶 `permissions` claim（role 三級 + restriction 兩種管制）。以
 
 對照組：這次上線同時把 L4（TTL / 撤銷機制）的風險面縮小，見上方發現清單 L4 更新。
 
+## 申訴通知的外流面（appeals → Discord，2026-08-26 發現 / 08-27 收斂）
+
+2026-08 平台體檢時發現，來源是加固計畫 A4（`docs/specs/2026-08-26-platform-hardening-plan.md`）。
+不是新功能的自我審查，是既有行為被重新評估。
+
+| ID | 級別 | 主題 | 發現 | 處置 | 狀態 |
+| --- | --- | --- | --- | --- | --- |
+| A4-1 | **MED** | appeals | 每筆申訴的**實名 + 年級 + email + 全文 + 圖片原檔**以 webhook 貼進 Discord，而那個頻道當時是**全體學生會**。申訴的對象很可能就是學生會或其幹部——被申訴人本人看得到申訴人是誰、寫了什麼、附了什麼照片。整條路徑在 `permissions` claim 與 `AuditLog` 之外：auth `/admin` 把 role 降回 `default` 只擋得住後台，Discord 頻道的成員名單不隨之收回，卸任、畢業都不會自動掉；也沒有存取紀錄、沒有保留政策 | 兩半都做：①**程式碼**（`tpass-appeals` `1a1f0ae`）通知收斂成 thread 標題（姓名+時間）+ embed author（姓名·年級）+ 後台深連結 + 附件**數量**，拿掉 email、全文與整條圖片 multipart 路徑；②**頻道**（2026-08-27）Discord 側收斂成只有申訴承辦人可見，**webhook URL 沿用**，舊 thread 跟著權限一起收進去 | ✅ |
+| A4-2 | LOW | appeals | 附件位元組直送 Discord CDN，等於在 `/api/files`（admin cookie 保護）之外多開一條**沒有驗證的取檔路徑**——保護等級由最弱那條決定 | 隨 A4-1 一併移除（`collectImageAttachments` 整個刪掉）；通知只報附件數量，連檔名都不送（檔名本身可能是實名或事件描述） | ✅ |
+| A4-3 | 📝 | appeals | **頻道那半沒有任何程式碼在守它**：下一任把頻道權限放寬，或把 webhook 改貼回大頻道，外流就回來，而且不會有任何測試或 CI 會紅 | 已在 `src/lib/discord.ts` 檔頭寫死警告、在 `AGENTS.md` 列鐵律；`tpass-appeals/src/lib/discord.test.ts` 有一條直接對整包 request body 斷言找不到 email 與內容字串（擋程式碼那半，擋不了頻道那半）。加固計畫 C3 的上線檢查表已補「通知送到哪、誰看得到」 | 📝 接受風險 |
+| A4-4 | LOW | appeals | `src/config/admin.ts` 的 `isAdmin` 是 `role !== "default"`——**任何 moderator 都讀得到全部申訴，沒有分案隔離**。跟 form 的 M2（扁平 admin 可讀所有問卷回應）是同一類問題，form 已修、appeals 未修 | 需要權限模型討論（照 M2 的做法收斂成「承辦人或超管」？申訴沒有「建立者」這個天然的收斂軸，要另想）。加固計畫已記錄為 A 層之外的獨立項目 | 📝 **未處理** |
+
 ## 下次審查提醒
 
 - 新服務上線時跑一遍 `tpass-auth/INTEGRATION.md §12` 的驗收清單（含四種假 token 測試）。
@@ -73,3 +85,7 @@ JWT 改帶 `permissions` claim（role 三級 + restriction 兩種管制）。以
   `AUTH_ISSUE_LEGACY_COOKIE` / `TPASS_COOKIE_NAME` —— 已無程式讀取，**不影響安全**，
   下次動主機 env 時順手清掉即可。
 - 檢查 Cloudflare 上有無 dangling DNS 子網域（H1 的殘餘面）。
+- **A4-4（appeals 的 moderator 扁平化）還開著**——下次審查若它仍未處理，重新評估級別：
+  申訴內容的敏感度高於問卷回應，而 form 的同類問題（M2）早就修了。
+- 順手確認 appeals 的 Discord 通知**沒有被加回內容**，以及那個頻道**還是只有承辦人**
+  （A4-3：這一半沒有程式碼在守）。

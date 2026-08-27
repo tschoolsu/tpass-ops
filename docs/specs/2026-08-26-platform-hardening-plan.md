@@ -353,6 +353,8 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
 - [ ] 監控加上去了嗎（A2）？
 - [ ] 備份含這個資料庫嗎（A1）？
 - [ ] 有 `error.tsx` 與 `not-found.tsx` 嗎？
+- [ ] **通知 / webhook 送到哪？那個頻道有誰看得到？**（A4：appeals 曾把申訴實名與全文
+      貼進全體學生會頻道。這一題沒有程式碼守得住，只能靠上線時問一次。）
 - [ ] **有第二個人知道它怎麼運作嗎？**
 - [ ] 資料保留多久、由誰決定刪除？
 
@@ -544,7 +546,20 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       **留給下一個人的一件事**：**端到端沒實測**——要真人 Google 登入，agent 做不了。
       下次有真實申訴進來時順手確認一眼：訊息裡應該只有姓名·年級、時間、後台連結、
       附件數量，**沒有** email、沒有任何一題的答案、沒有圖。
-- [ ] A5 根網域轉址
+- [ ] A5 根網域轉址（2026-08-27 人工設定過，**驗收不通過：apex 是無限轉址迴圈**）
+      `www.tschoolsu.org` ✅ 301 → `https://portal.tschoolsu.org/`（含 `/foo` 也正確落地）。
+      `tschoolsu.org` ❌ 301 → **`https://tschoolsu.org/`（指回自己）**，瀏覽器會拿到
+      `ERR_TOO_MANY_REDIRECTS`。`/foo` → `/foo`，**路徑被保留**——而 www 那條是靜態目標、
+      路徑會被丟掉。兩條行為不同，代表 **apex 命中的是另一條規則**，
+      目標大概是 `concat("https://", http.host, ...)` 之類把 `http.host` 原樣帶回去的
+      動態運算式（或目標主機名少打了 `portal.`）。要看的是 Cloudflare 的
+      Rules → Redirect Rules，確認 apex 那條的 **target host 是 `portal.tschoolsu.org`
+      而不是 `http.host`**，並檢查有沒有殘留的舊 Page Rule 先攔截到。
+      DNS 本身沒問題（apex 與 www 都有 A 記錄指向 Cloudflare）。
+      🟢 **UptimeRobot 那顆 monitor 已經開回來，而且正確地紅**——`tpass status` 的
+      「== 監控 ==」顯示 `tschoolsu.org down`。轉址修好它就會轉綠，那才是驗收通過。
+      （值得記一筆：301 在接受碼 2xx+3xx 範圍內，本來擔心迴圈會被判成綠燈；
+      實測 UptimeRobot 會跟著轉址走，所以抓得到。）
 - [ ] B1 部署搬進 GitHub Actions
 - [ ] B2 PR 檢查
 - [ ] B3 工具箱發給部員
