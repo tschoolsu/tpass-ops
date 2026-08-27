@@ -140,6 +140,10 @@ deploy_one() {
     echo "   無新 commit，仍重建以確保一致。"
   fi
 
+  # 稽核軌跡：從 GitHub Actions 部署時，這一行讓那次執行紀錄本身就答得出
+  # 「線上現在跑的是哪個 commit」，不必再回頭去主機上問。
+  echo "   📌 部署版本：$(git rev-parse --short "$after") $(git log -1 --pretty=%s "$after")"
+
   # 維護 env：git 更新可能引入新的必填 key（例：PORTAL_URL）。先擋，再 build。
   check_env "$dir"
 
