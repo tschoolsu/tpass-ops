@@ -607,7 +607,65 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       規定每次部署由不同的人按）的前置，做 B3 時順手一起收掉。
       ② **撤銷 CI 權限的方法要有人知道**：刪掉主機 `~/.ssh/authorized_keys` 裡
       `github-actions-deploy` 那一行即可，不影響任何人的個人連線。已寫進 `ONBOARDING.md` §4。
-- [ ] B2 PR 檢查
+- [x] B2 PR 檢查（2026-08-27 完成，**分支保護刻意不做**）
+      七個服務 repo 各一份 `.github/workflows/ci.yml`：`pnpm install --frozen-lockfile`
+      →（有 Prisma 才）`prisma generate` → `next typegen` → `lint` → `tsc --noEmit`
+      →（有測試才）`test` → `build`。一次跑 **44～52 秒**，public repo 免費。
+      觸發掛 `pull_request` **與 `push: main` 兩個**——沒開分支保護，直推 main 是常態，
+      所以後者不是保險絲而是主力：推壞的人幾十秒後收到 GitHub 的失敗信。
+      auth / portal 多一步 `git clone` 註冊表到 `$RUNNER_TEMP` 並用 `$GITHUB_ENV`
+      傳絕對路徑 `TPASS_REGISTRY_PATH`（**不 checkout 進專案目錄**，免得 eslint / tsc /
+      Turbopack 把它當專案的一部分；`runner.temp` 在 job 層 `env:` 讀不到，只能在步驟裡）。
+      🚫 **計畫第 3 點「開啟 main 的分支保護」刻意沒做**，這是執行時查出事實後改的決定，
+      不是漏掉。查到的事實：**八個 repo 的 push 權限清單完全一樣**（`YC815`、`Ray1020-a`、
+      `Super1115`、`tschoolsu-manager`——是組織層級不是只有 ops），但**歷史上推過 code 的只有
+      `YC815`，`notes` 多一個 `Ray1020-a`**。也就是保護要擋的兩個帳號從沒推過任何東西，
+      而部長選的「管理員可繞道」又讓他自己免疫——規則管的是還沒發生的事，代價卻是現在就要教。
+      另一個支撐：**壞 code 進 main 不會弄壞線上站**（已實測：把 registry 的 icon 改壞去 build
+      portal，`Failed to collect page data for /`；`deploy.sh` 是先 build 再 restart，
+      build 掛掉部署中止，線上維持舊版）。所以 CI 的價值是「把發現時間從下次部署提前到推上去 40 秒後」，
+      **那個價值不需要靠強制 PR 拿到**。
+      ⏰ **什麼時候該回來開**：等第二個人開始固定推 code（＝C4 的目標達成那天）。
+      那時已經有七顆亮著的燈，開保護只剩點四個勾。設定內容（部長已選定）：
+      ruleset → Active、bypass 加 Repository admin、target = default branch、
+      勾 Restrict deletions / Require PR（**approvals 設 0**，人力還是 1.2 個人）/
+      Require status checks → 選 `check`（**不要**勾 up-to-date，PR 量小、只是白等）/ Block force pushes。
+      🚫 **也刻意不建任何制度**：不寫進部員手冊、不列進交付要求、不教任何人、不做 `tpass ci` 產生器。
+      理由是部長講的工作流：**部員只交 v1，之後的驗收、修補、維護都是部長與 Ray**，
+      而且**部員自己開 project，不會經過 `tpass new`**——所以「教每個新人做 CI」的成本大於必要性。
+      CI 在這裡是**給接手的兩個人用的工具**：不必 clone 別人交來的 code、不必配 env、不必起資料庫，
+      40 秒就知道那包東西 lint / 型別 / build 過不過。以後要幫某個 repo 裝，複製任一份現有的
+      `ci.yml` 過去改 `env:` 區塊即可（填錯 CI 會直接印 `[config/xxx] 缺少必填環境變數：KEY`，一次收斂）。
+      **代價要誠實記著：沒有任何提醒機制，新 repo 實際上大概率永遠不會裝 CI。**
+      🕳 **踩到的五個坑（下一個人照計畫原文寫 workflow 一定再踩）**：
+      ① **`tsc --noEmit` 在全新 clone 上會失敗**（appeals / form：`Cannot find name 'RouteContext'`）。
+      那些型別是 Next 生成在 `.next/types/` 的，本機有 `.next` 所以 `tpass check` 一直是綠的。
+      解法 `pnpm exec next typegen`（Next 16 的指令，不用整包 build，一秒）。
+      ⚠️ 這代表**部員在全新 clone 上跑 `tpass check` 也會無故噴紅**——`tpass check` 值得補這一步。
+      ② **`prisma generate` 要自己跑**，`pnpm install` 不會帶到（`deploy.sh:175` 早就寫過同樣的理由）。
+      ③ **build 期就會 import `src/config/*.ts`**，缺 REQUIRED 直接 throw，所以 CI 需要一份假 env。
+      網域一律用 `.invalid`（RFC 2606 保證解析不出來）：萬一有人寫出 build 期就 fetch 的 code，
+      它會當場爆炸而不是安靜打到正式站。**auth 不需要在 CI 產金鑰**——`session.ts` 的 `??=` 是 lazy，
+      `JWT_PRIVATE_KEY=ci-not-a-real-key` 照樣 build 過，public repo 裡連假 PEM 都不必出現。
+      ④ **action 版本會過期**：`@v4` 一跑就噴 `Node.js 20 is deprecated`。現行大版本是
+      `checkout@v7` / `setup-node@v7` / `pnpm/action-setup@v6`。這是整件事**唯一不能在本機先跑過**的部分
+      （action 只存在於 runner 上）；其餘每一行都在全新 clone 上實跑過才推。
+      ⑤ **裝煞車前要先看車子是不是好的**：`tpass-notes` 的 `pnpm lint` 當時就是紅的
+      （`components/access-gate.tsx:11`，React Compiler 規則擋 effect 內同步 setState）。
+      **CI 只能加在現在就是綠的 repo 上**——加在紅的上面，三天後大家就學會忽略它，比沒有更糟。
+      已修（那行 `setCanClose(false)` 本來就沒作用，初始值就是 false），順手補上 notes 漏掉的
+      `packageManager: pnpm@10.27.0`（其餘六個都有；少了它 `pnpm/action-setup` 不知道裝哪版）。
+      📌 **順帶更正 §4 的一句話**：註冊表 icon 事故的實際後果是「**部署中止、線上維持舊版**」，
+      不是「啟動即炸」；而且**這次的 CI 擋不下它**——portal 的 CI 抓的是註冊表的 `main`，
+      註冊表的 PR 不會去 build portal。要擋得靠註冊表那邊的 CI 反過來 build 一次 portal，本次沒做。
+      **留給下一個人的三件事**：
+      ① **`tpass-appeals` 的 CI 走 PR（[#2](https://github.com/tschoolsu/tpass-appeals/pull/2)）**，
+      是第一段的教學樣本，淨改動只有那一個檔案；其餘六個直推 main。若那個 PR 還開著就是還沒 merge。
+      ② **`tpass-meeting` / `tpass-vote` / `tpass-registry` 沒有這份 CI**：meeting 本機沒 clone
+      且還在開發、vote 還沒有 GitHub repo、registry 已經有自己的 `validate.yml`。
+      ③ 驗收證據（2026-08-27）：故意在 appeals 推一個型別錯誤，CI 在 `tsc` 那步紅、
+      後面的 test / build 自動跳過，GitHub 把錯誤標註在 `src/lib/ci-red-test.ts#1`；移除後回綠。
+      六個直推 main 的 repo 首跑全綠（44～52 秒）。
 - [ ] B3 工具箱發給部員
 - [ ] B4 三個服務補錯誤頁
 - [ ] B5 回報管道
