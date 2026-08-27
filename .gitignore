@@ -10,6 +10,7 @@
 
 # --- 白名單：ops 層才追蹤 ---
 !/.gitignore
+!/.github/
 !/AGENTS.md
 !/CLAUDE.md
 !/scripts/
