@@ -36,7 +36,9 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
 | `docs/` | ops 文檔 | — | `handbook/`＝**給部員看、手動同步到團隊 HackMD 的四篇**（服務串接指南 / SSO 合約 / Design System / 註冊表 SOP），索引見 `docs/handbook/README.md`。根目錄留 ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。`docs/specs/` 是跨 repo 功能的實作規格暫存區，不是 ops 文檔。 |
 
-> **git repos**（2026-08-26 核對）：**private 只有 `tpass-ops`**（＝頂層本身）；
+> **git repos**（2026-08-27 核對）：**全部都是 public，包含 `tpass-ops` 本身**（＝頂層）。
+> ⚠️ 這代表 **GitHub Actions 的執行紀錄也是公開的**——部署 log 裡不得出現主機位址
+> （機密一律走 GitHub Secrets，值會被自動遮成 `***`）。
 > `tpass-registry`、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、
 > `tpass-appeals`、`tpass-notes`、`tpass-meeting` 都在 **`tschoolsu` 組織**底下且是 **public**。
 > `tpass-buddy` 在 **`YC815`** 個人帳號底下（臨時服務，未轉移）。
@@ -162,7 +164,10 @@ scripts/tpass ui       # 不想打字：本機圖形儀表板
 > ⚠️ 主機位址與帳號是機密，存在 **gitignored 的 `deploy/host.env`**（範本 `host.env.example`）。
 > **絕對不要**把主機 IP / 帳號寫進任何被追蹤的檔案、commit、PR。
 
-- 部署：`scripts/tpass deploy [svc|all]`；看狀態 `tpass status`；看 log `tpass logs <svc>`。
+- 部署：**首選是 GitHub Actions**——repo 的 Actions 分頁 → `deploy` → Run workflow，
+  輸入服務 id（`all` / `ping` 也可）。任何有 repo 寫入權的人都能按，不需要主機憑證。
+  本機 `scripts/tpass deploy [svc|all]` 保留不動，是那條管道壞掉時的逃生路徑。
+  看狀態 `tpass status`；看 log `tpass logs <svc>`。
 - 進主機：`scripts/ssh.sh`（互動）或 `scripts/ssh.sh '<cmd>'`。
 - **agent 拿不到 root**。維運者本人在主機上有 sudo（要打自己的登入密碼），但 agent 無從代打——
   要動 nginx / 建 PostgreSQL role/db 的指令，**印出來交給人在主機貼一次**，不要嘗試代跑

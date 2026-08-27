@@ -192,6 +192,49 @@ scripts/tpass start        # 大改動再跑：build + start（抓 dev 抓不到
 
 ## 4. 部署
 
+### 首選：GitHub Actions（不需要主機憑證）
+
+**[tpass-ops → Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
+在輸入框打服務 id 就好：
+
+| 輸入 | 做什麼 |
+| --- | --- |
+| `all`（預設） | 註冊表裡所有 `deployed:true` 的服務 |
+| `form` / `buddy` / … | 單一服務 |
+| `ping` | **不部署**，只回答「CI 那把金鑰還連得上主機嗎」 |
+
+合法的 id 是**現場去抓 `tpass-registry/services.json` 算出來的**，不寫死在 workflow 裡
+——新服務上線時這個檔案一行都不用改。打錯會在幾秒內紅燈並印出可用清單。
+
+**任何有 `tpass-ops` 寫入權的人都能按**，不必拿到主機位址、帳號或任何金鑰。
+每次執行的 log 裡有 `📌 部署版本：<sha> <commit 標題>`，那份紀錄本身就是稽核軌跡。
+同一時間只允許一個部署在跑（`concurrency`），兩個人同時按不會在主機上互相踩。
+
+> ⚠️ **`tpass-ops` 是 public repo，Actions 的 log 也是公開的。**
+> 主機位址 / 帳號 / 金鑰全部走 GitHub Secrets，值在 log 裡自動被遮成 `***`。
+> 之後往 `deploy.sh` 加任何 `echo` 時，記得它會被全世界看到。
+
+**它是怎麼運作的**（三個檔案，沒有別的）：
+
+1. `.github/workflows/deploy.yml` — 在 GitHub 借來的臨時 Linux 上跑，
+   從 Secrets 佈好 SSH 金鑰，然後 `ssh <主機> "<服務 id>"`。
+2. 主機 `~/.ssh/authorized_keys` 裡 CI 那把金鑰前面掛了
+   `command="~/tpass/deploy/ci-deploy.sh",restrict` — **強制命令**：
+   送什麼指令過來 sshd 都丟掉，一律改跑那支包裝層，原字串塞進 `$SSH_ORIGINAL_COMMAND`。
+3. `deploy/ci-deploy.sh` — 把那個字串當服務 id 白名單過濾（`^[a-z0-9_-]+$`），
+   然後 `git pull` + `./deploy/deploy.sh <svc>`。跟本機 `tpass deploy` 是同一條路。
+
+所以 **「有 repo 寫入權」＝「能按部署」，不等於「主機上那個帳號的 shell」**。
+拿到那把私鑰也開不了互動 shell、跑不了任意指令。
+
+**CI 金鑰是獨立的一把**（`github-actions-deploy`），不是任何人本人那把
+——撤銷 CI 權限只要刪掉 `authorized_keys` 裡那一行，不影響個人連線。
+私鑰只存在 GitHub Secrets，**讀不回來**；要換就重產一把、重設 secret、重寫那一行。
+
+### 逃生路徑：本機直連
+
+GitHub 掛了、Actions 壞了、或你就是想看即時輸出：
+
 ```bash
 scripts/tpass deploy form   # 單一服務
 scripts/tpass deploy        # 全部（registry 裡 deployed:true 的）

@@ -568,7 +568,45 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       用靜態、不保留路徑是刻意的：apex 底下沒有內容，`tschoolsu.org/foo` 保留路徑
       只會變成 portal 的 404，丟掉路徑直接落到大廳才對。
       UptimeRobot 的 `tschoolsu.org` monitor 已從 Paused 開回來，等它下一輪翻綠即可。
-- [ ] B1 部署搬進 GitHub Actions
+- [x] B1 部署搬進 GitHub Actions（2026-08-27 完成）
+      **[Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
+      輸入框打服務 id（`all` / `ping` / 單一 id）。合法清單**現場抓 `tpass-registry/services.json`**，
+      不寫死在 workflow 裡——新服務上線這個檔案一行都不用改。
+      三個檔案就是全部：`.github/workflows/deploy.yml`、`deploy/ci-deploy.sh`、
+      `deploy/deploy.sh` 多一行 `📌 部署版本：<sha> <標題>`（＝計畫第 3 點的稽核軌跡）。
+      `scripts/tpass deploy` 一行沒動（計畫第 4 點）。
+      🔐 **比計畫原文多做了一層：強制命令。** 計畫只說「金鑰放 Secrets」，
+      但 `tpass-ops` 是 **public**，若不綁，「有 repo 寫入權」就等於「主機上部署帳號的 shell」
+      ——任何人改一行 workflow 就能跑任意指令。做法是 `authorized_keys` 裡 CI 那把金鑰前面掛
+      `command="/home/<user>/tpass/deploy/ci-deploy.sh",restrict`：sshd 收到什麼指令都丟掉，
+      一律改跑包裝層，原字串塞進 `$SSH_ORIGINAL_COMMAND` 當服務 id 白名單過濾（`^[a-z0-9_-]+$`）。
+      **本機實測四種情況**：`ping` 通、`pm2 list` 擋成 exit 2、`buddy; rm -rf ~` 擋成 exit 2、
+      `ssh -tt` 要不到 pty。所以「有 repo 寫入權」＝「能按部署」，僅此而已。
+      保留字 `ping` 不部署，只回答「CI 金鑰還連得上主機嗎」——以後排查金鑰被撤銷 / 主機換位址用得到。
+      🕳 **踩到的四個坑**：
+      ① **`.gitignore` 靜默吃掉 `.github/`**。頂層是 deny-all 白名單（`/*` 全忽略再逐項放行），
+      不加 `!/.github/` 的話 `git add .github` **不報錯、也什麼都沒加**。這是第一步就該做的。
+      ② **bash 變數後面接中文字元會被當成變數名的一部分**：`echo "「$SERVICE」"` 在 runner 上
+      噴 `SERVICE」: unbound variable`。推之前在本機把那段 shell 跑過才抓到。一律寫 `${SERVICE}`。
+      ③ **計畫與 `AGENTS.md` 都寫「private 只有 tpass-ops」，實際上它是 public**（已修）。
+      這不只是文件錯字——**Actions 的執行紀錄跟著是公開的**，所以 `ping` 刻意不印 hostname，
+      往 `deploy.sh` 加任何 `echo` 前都要想一次。已實際 grep 過一次完整部署 log：
+      主機位址 0 次、私鑰字樣 0 次、12 行被遮成 `***`。
+      ④ **先有蛋才有雞**：`ci-deploy.sh` 自己會 `git pull`，但第一次它得先存在於主機——
+      要先 commit + push + 手動讓 `~/tpass` pull 一次，才能寫 `authorized_keys`。
+      之後就自我更新了（那也是為什麼它整段包在 `main()` 裡：bash 邊讀邊執行，
+      而它正在覆蓋自己執行中的檔案）。
+      **驗收證據**（2026-08-27）：`buddy` 從網頁按下去，log 有
+      `📌 部署版本：94ef51c`、`✅ 健康檢查通過（:3008 → HTTP 307）`、`✅ buddy 部署完成`。
+      動 `authorized_keys` 前備份成 `~/.ssh/authorized_keys.bak-preci`，只用 `>>` 追加，
+      原有金鑰未動。CI 私鑰已從本機刪除，**只存在 GitHub Secrets、讀不回來**；
+      要換就重產一把、重設 secret、重寫那一行。
+      **留給下一個人的兩件事**：
+      ① **「第二個人也能按」還沒驗**——計畫的完整驗收包含這條，需要給另一位部員
+      `tpass-ops` 的 write 權限再讓他按一次。這是 B3（工具箱發給部員）與 C4（強迫知識流動：
+      規定每次部署由不同的人按）的前置，做 B3 時順手一起收掉。
+      ② **撤銷 CI 權限的方法要有人知道**：刪掉主機 `~/.ssh/authorized_keys` 裡
+      `github-actions-deploy` 那一行即可，不影響任何人的個人連線。已寫進 `ONBOARDING.md` §4。
 - [ ] B2 PR 檢查
 - [ ] B3 工具箱發給部員
 - [ ] B4 三個服務補錯誤頁
