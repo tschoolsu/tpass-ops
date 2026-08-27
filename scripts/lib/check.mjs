@@ -1,4 +1,4 @@
-// push 前把關：lint + tsc --noEmit（不靠跑 dev server 驗證）。
+// push 前把關：next typegen + lint + tsc --noEmit（不靠跑 dev server 驗證）。
 // checkEnv：驗 .env.local 是否含所有必填 key。必填清單的真相來源＝各 repo
 // src/config/*.ts 的 REQUIRED 陣列（跟 runtime 同一份，不會漂移），不是 .env.example。
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -35,6 +35,12 @@ export async function check(target) {
   let fail = false;
   for (const s of resolveTarget(target)) {
     const dir = repoDir(s);
+    // Next 16 把 route 的型別（RouteContext…）生成在 .next/types/ 底下，是 build 的產物。
+    // 開發機通常一直有 .next 所以感覺不到，但**全新 clone 上 tsc 會直接噴
+    // 「Cannot find name 'RouteContext'」**——新人第一件事跑 check 就撞到，還會以為是自己弄壞的。
+    // typegen 只生型別不做 build，一秒，冪等。（CI 的 workflow 也放了同一步，同樣理由。）
+    console.log(`== ${s.id} : next typegen ==`);
+    if ((await run("pnpm", ["exec", "next", "typegen"], { cwd: dir, label: s.id }).done) !== 0) fail = true;
     console.log(`== ${s.id} : lint ==`);
     if ((await run("pnpm", ["run", "lint"], { cwd: dir, label: s.id }).done) !== 0) fail = true;
     console.log(`== ${s.id} : tsc --noEmit ==`);

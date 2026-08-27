@@ -32,7 +32,7 @@
 | `tpass` 指令 | 等價的原生指令 |
 | --- | --- |
 | `tpass dev <svc>` | `next dev --experimental-https --experimental-https-{key,cert} certs/… -H <svc>.lvh.me -p <port>`（消費端另加 `NODE_TLS_REJECT_UNAUTHORIZED=0`，見下方⚠️） |
-| `tpass check <svc>` | `pnpm lint` && `pnpm exec tsc --noEmit` ← **就這兩行,沒別的** |
+| `tpass check <svc>` | `pnpm exec next typegen` && `pnpm lint` && `pnpm exec tsc --noEmit` ← **就這三行,沒別的**（typegen 是因為 route 型別住在 `.next/types/`,全新 clone 上少了它 tsc 會噴 `Cannot find name RouteContext`）|
 | `tpass check env <svc>` | 比對 `.env.local` 與該 repo `src/config/*.ts` 的 `REQUIRED` 陣列 |
 | `tpass build <svc>` | `pnpm build` |
 | `tpass start <svc>` | `pnpm build` && `pnpm start:https` |

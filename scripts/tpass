@@ -9,7 +9,7 @@ const HELP = `tpass —— tschool 平台開發/部署工具（不帶參數進�
 
 本機開發
   tpass dev [svc|all]        內層 dev 迴圈（HTTPS + HMR，SSO 全流程可測）
-  tpass check [svc|all]      push 前把關：lint + tsc --noEmit
+  tpass check [svc|all]      push 前把關：next typegen + lint + tsc --noEmit
   tpass check env [svc|all]  驗 .env.local 必填 key（真相 = src/config REQUIRED）
   tpass build [svc|all]      pnpm run build
   tpass start [svc|all]      production smoke：build + start:https

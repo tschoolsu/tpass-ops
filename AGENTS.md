@@ -122,7 +122,8 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 抓不到 auth 的 JWKS → 登入靜默鬼打牆）。這串已寫進各服務 `package.json` 的 `dev`，
 所以 `pnpm dev` 是對的；`scripts/tpass dev` 是一次跑多個服務的捷徑。
 **auth 不加那個 flag**（要驗 Google 真憑證），**主機永遠不加**（資安事故）。
-agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check` 做的就是這兩行）。
+agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check` 做的就是這兩行，
+外加前置的 `pnpm exec next typegen`——route 型別是 `.next/types/` 的產物，全新 clone 上少了它 tsc 必紅）。
 **套件管理一律 pnpm**（`pnpm add` / `pnpm install`）；不要用 npm / yarn，不要生出 `package-lock.json`。
 
 **安全 / 架構紅線（違反就是 bug）：**
