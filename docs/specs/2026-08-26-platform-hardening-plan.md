@@ -725,10 +725,76 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
       後面的 test / build 自動跳過，GitHub 把錯誤標註在 `src/lib/ci-red-test.ts#1`；移除後回綠。
       六個直推 main 的 repo 首跑全綠（44～52 秒）。
 - [ ] B3 工具箱發給部員
-- [ ] B4 三個服務補錯誤頁
-- [ ] B5 回報管道
+- [x] B4 錯誤頁（2026-08-27 完成，**範圍多了 portal 與 auth**）
+      form / appeals / msg / portal 各補三層：`not-found.tsx`（打錯網址）、
+      `error.tsx`（頁面或 server action 拋例外）、`global-error.tsx`（連 root layout 都炸掉，
+      樣式一律 inline——那一層拿不到 layout 的字體與 Tailwind）。auth 原本只有 `not-found`，
+      補上 `error` / `global-error`。例外原文只進 server log，畫面只給 `digest` 代碼。
+      🔑 **關鍵取捨（下一個人會撞到）**：`error.tsx` 一定是 client component，讀不到
+      server-only 的 config，所以「回大廳／回報」的網址不能從 `authConfig` 拿。做法是
+      各服務 `next.config.ts` 用 `env:` 把**既有的** `PORTAL_URL` 注入成
+      `NEXT_PUBLIC_PORTAL_URL`（`src/lib/exit-links.ts` 讀它）——**沒有新增任何一顆
+      要人上主機去填的 env**。portal 自己就是大廳，所以它那份是站內相對路徑。
+      auth 的 `/service-error` 改寫成給學生看的話（原本寫「串接者：把服務登記進
+      tpass-registry…」，讀者卻是撞到的學生）；那些排錯指示移進 `authorize` 的
+      `reject()` server log，含 service / redirect_uri / next 與該 reason 的修法。
+      **驗收證據**：`tpass-form` 正式 build + `next start`，`/no-such-page` 回 404 且 SSR
+      HTML 裡是「找不到這個頁面」＋三個出口；臨時放一個會拋例外的 route → 回 **500** 且
+      走到本站的錯誤邊界（`error.tsx` 的文案確認在 client chunk 裡，Next 的錯誤邊界是
+      hydration 後才渲染，所以 SSR HTML 看不到它）；驗完刪掉那個 route。
+      計畫原文的「把 DATABASE_URL 改壞」沒照做——那要動 `.env.local`，用會拋例外的
+      臨時 route 等價而且不碰任何真值。
+- [x] B5 回報管道（2026-08-27 **程式碼完成，正式站還差一步**）
+      管道選 T-Form 的一份問卷（部長指定；前例是新生直屬快問快答那份 seed）。
+      入口固定成 **`${PORTAL_URL}/feedback`**：portal 的 `app/feedback/route.ts` 依註冊表
+      推導 T-Form 網址再轉到 `/f/feedback`。這樣①各服務零新增 env（它們本來就有
+      `PORTAL_URL`）②之後要換成 LINE 或別份問卷只改 portal 那一個檔（`FEEDBACK_URL`
+      env 可整條蓋過）。大廳頁尾與五個服務的錯誤頁都指到它。
+      問卷本身寫成 code（`tpass-form/src/lib/feedback/feedback-form.ts` ＋
+      `scripts/seed-feedback-form.ts`，`pnpm db:seed:feedback` 冪等 upsert，slug 固定
+      `feedback`）——它是基礎設施，不能讓人在後台不小心改壞或刪掉。
+      「你在哪個服務遇到問題」的選項**從 tpass-registry 派生**，不硬編碼服務清單。
+      一併修掉 `tpass-cross_grade_messages` 守則第十二條那句「請透過門戶公告聯絡」——
+      公告這個功能不存在。
+      **驗收證據**（本機）：`portal /feedback` → 307 → `https://form.lvh.me:3002/f/feedback`
+      → 200 且標題是「回報問題給數位部」。
+      ⚠️ **正式站還沒有這份問卷**：seed 要跑在主機的 `t_form` 上，而且要一個真人的
+      `sub`（到 auth 的 `/admin` 找）。指令：
+      `FEEDBACK_OWNER_SUB=… FEEDBACK_OWNER_EMAIL=… pnpm db:seed:feedback`（在主機的
+      `/home/service/tpass-form` 底下，`TPASS_REGISTRY_PATH` 指到主機那份註冊表）。
+      **沒跑之前，正式站的「回報問題」會 404。**
 - [ ] B6 Uptime Kuma 調好後轉交部員自架（接手 A2 的死人開關洞）
-- [ ] C1 驗章抽成套件
+- [x] C1 驗章抽成套件（2026-08-27 完成，**六個服務全部切換**）
+      套件：[`tschoolsu/tpass-auth-js`](https://github.com/tschoolsu/tpass-auth-js)（public，v1.1.1）。
+      `tpass-auth-js` 只依賴 jose（`createTpassAuth` / `configFromEnv`）；
+      `tpass-auth-js/next` 多給 `getSession()` 與 `callbackHandler` / `logoutHandler`
+      兩條 route handler。**27 個測試**釘住四鐵則（錯 aud、錯 iss、過期、HS256
+      alg confusion、竄改）與 cookie 屬性（HttpOnly / SameSite / Secure / **沒有 Domain**）、
+      Open Redirect 防線、cookie 壽命跟著 exp。
+      切換：portal / form / appeals / msg / vote / buddy 六份 `src/lib/tpass-auth.ts`
+      **全部刪掉**（78～91 行 × 6），callback / logout 兩條 route 各剩一行 export，
+      `config/*.ts` 只剩一行綁定。手冊〈整合登入〉四大節砍成三個小檔（51,758 → 48,035 字），
+      `INTEGRATION.md` 新增 §8.0（手刻版降為「不是 Next.js 才看」的備援）。
+      🐞 **抽套件抓到的三個漂移**（正是做這件事的理由）：
+      ① **`TPASS_COOKIE_NAME`**：`configFromEnv` 一開始會讀它，而 portal 的 `.env.local`
+      裡還留著 v1 的 `tpass_session`——舊的手抄實作是硬寫 `tpass_token` 不看 env，
+      所以套件版會**靜默退回 v1 的 cookie 名**。端到端驗證時抓到，v1.1.1 拿掉這行並加測試。
+      ② **登出的 `next`**：六份裡只有 form 支援「登出後回到指定頁」（切換帳號要用），
+      收進套件後所有服務都有。
+      ③ **buddy 的 `TPassClaims` 沒有 `entryYear`**（契約 v2 有），換成共用型別後 tsc 立刻報出來。
+      **驗收證據**：不需要 Google 登入——自架一個假 auth（只公開 JWKS + 簽票），
+      把 portal 指過去跑正式 build，實測①未登入 → 307 導 authorize
+      ②拿 `aud=tpass:appeals` 的票打 callback → **401 且不寫 cookie**
+      ③正確的票 → 303 + `tpass_token=…; HttpOnly; SameSite=Lax`（無 `Domain`）
+      ④帶 cookie 讀首頁 → 200 且認得人 ⑤登出 → cookie `Max-Age=0`。
+      **留給下一個人的三件事**：
+      ① **`tpass-vote` 的 commit 只在本機**（那個 repo 還沒有 GitHub remote），
+      **`tpass-notes` / `tpass-meeting` 沒有切換**（本機沒有可用的 clone；notes 的驗章
+      不在 `src/lib/tpass-auth.ts`）——它們仍是手抄版，之後要補。
+      ② **沒有人跑過真實的 Google 登入**（部長睡覺中，不可自動化）。線上要驗的是
+      「登入一次 + 登出一次」，尤其 form 的切換帳號。
+      ③ 套件的 `dist/` 直接進 git（消費端用 git URL 安裝，install 時不編譯任何東西）；
+      **改完 src 一定要 `pnpm run build` 再 commit**，CI 有 `git diff --exit-code -- dist` 擋。
 - [ ] C2 runbook
 - [ ] C3 上線檢查表
 - [ ] C4 知識流動制度

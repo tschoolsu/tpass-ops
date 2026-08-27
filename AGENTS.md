@@ -32,6 +32,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-meeting/` | 會議輔助（T-Meeting） | `https://meeting.lvh.me:3009` | 會議記錄/簽到/表決 + API key，`pg`（`strategy:"none"`）。**線上活著但註冊表是 `deployed:false`**：主機那份 npm 裝、目錄屬 root、自帶 `ecosystem.config.js`，`deploy.sh` 跑不動，目前由 **root 的 pm2** 手動跑。上線步驟見 `docs/specs/2026-08-26-platform-hardening-plan.md` 的 A3 註記。 |
 | `tpass-vote/` | 選舉系統（T-Vote） | `https://vote.lvh.me:3006` | 開發中，尚未上線（註冊表 `deployed:false`）。設計決策見 memory。 |
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
+| `tpass-auth-js/` | **驗章共用套件** | — | **public repo**，並排 clone（非必要——各服務是用 git URL 安裝它，不是相對路徑）。消費端的驗章四鐵則、callback/logout route handler 都在這裡，有 27 個測試守著。**2026-08-27 起六個消費端都吃它，不要再在服務裡手抄 `lib/tpass-auth.ts`。** |
 | `tpass-registry/` | **服務註冊表（唯一真相）** | — | **public repo**，並排 clone。id/目錄/子網域/port/DB 策略/大廳卡片全在 `services.json`；auth 白名單、portal 卡片、pm2、deploy 全部從它派生，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
 | `docs/` | ops 文檔 | — | `handbook/`＝**給部員看、手動同步到團隊 HackMD 的四篇**（服務串接指南 / SSO 合約 / Design System / 註冊表 SOP），索引見 `docs/handbook/README.md`。根目錄留 ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。`docs/specs/` 是跨 repo 功能的實作規格暫存區，不是 ops 文檔。 |
@@ -69,7 +70,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | --- | --- | --- |
 | **登入怎麼串**（契約：authorize/callback、四鐵則、payload、錯誤碼、各語言範本） | `tpass-auth/INTEGRATION.md` | 🟢 **權威** |
 | **開一個新服務 → 串登入 → 上線**（部員動手版，Next.js，自給自足） | `docs/handbook/01-new-service.md` | 🟢 權威（人類讀這份） |
-| **驗章參考實作**（直接照抄） | `tpass-portal/src/lib/tpass-auth.ts` + `src/config/portal.ts` + `src/app/api/auth/{callback,logout}/route.ts` | 🟢 權威 |
+| **驗章實作**（不要再手抄） | 套件 **`tpass-auth-js`**（`github:tschoolsu/tpass-auth-js`）；用法參考 `tpass-portal/src/config/portal.ts` + `src/app/api/auth/{callback,logout}/route.ts` | 🟢 權威 |
 | **開發 / 部署 / 主機 / nginx / Cloudflare / 排錯**（自給自足） | `docs/ONBOARDING.md`（`tpass` CLI 為唯一入口） | 🟢 權威 |
 | **服務清單 / port / DB 策略 / 大廳卡片** | `tpass-registry/services.json`（唯一真相，public repo）；欄位定義見該 repo `README.md` | 🟢 權威 |
 | **改服務註冊表**（新增服務 / 改欄位 / 上線翻 `deployed` / 主機紅線 / 改完誰重部署） | `docs/handbook/04-registry-sop.md` | 🟢 權威 |
@@ -130,6 +131,7 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
 
 - ❌ 消費端不要 import / 複製 auth 的私鑰、`arctic`、OAuth callback。**只需要公鑰。**
 - ❌ 不要在前端驗章、不要把 token 塞 `localStorage`、不要關掉 `algorithms: ['EdDSA']` 鎖定。
+- ❌ 不要在服務裡復活一份手抄的 `src/lib/tpass-auth.ts`（2026-08-27 六份全部刪掉了）。驗章要改就去 `tpass-auth-js` 改，那裡有測試；服務端只留 `config/*.ts` 那一行綁定。
 - ❌ 不要把網域 / issuer / audience / 服務清單寫死——讀 `config/*`（env）與 `tpass-registry`。
 - ❌ **不要在 portal 或 auth 裡硬編碼服務清單**（曾經有過：portal 的卡片陣列 + `<SVC>_URL` env、
   auth 的 `AUTH_SERVICE_IDS`，兩者都已於 2026-07-31 廢除）。大廳卡片與發證白名單一律派生自

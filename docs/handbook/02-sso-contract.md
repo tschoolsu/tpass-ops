@@ -5,7 +5,7 @@ tags: T-Pass, 手冊
 
 > **這份是同步副本。** 技術權威在 [`tschoolsu/tpass-auth`](https://github.com/tschoolsu/tpass-auth) 的 `INTEGRATION.md`——
 > 那份跟 auth 的程式碼放在一起，改契約的人改的是那份。要改內容請改來源再同步過來。
-> 同步自 `tpass-auth@f1b3b93`（2026-08-21）。
+> 同步自 `tpass-auth@2abe0d7`（2026-08-27）。
 
 # T-Pass SSO 串接指南（權威合約・契約 v2）
 
@@ -167,7 +167,7 @@ interface PermissionEntry {
 
 > ⚠️ **解析安全預設值（務必實作）**：`permissions` 缺、或缺你要查的 serviceId 這把 key
 > （舊票、或非 overview 服務去查別的 serviceId）→ 一律當成 `{ read: true, role: "default" }`，
-> 不要因為缺資料就誤鎖使用者。參考實作：`tpass-portal/src/lib/tpass-auth.ts` 的 `permOf()`。
+> 不要因為缺資料就誤鎖使用者。參考實作：`tpass-auth-js` 的 `permOf()`（§8.0）。
 
 > 📅 **`entryYear` 與年級**：年級不要自己從信箱算。信箱前三碼是入學學年度，但**休學復學的人
 > 信箱沿用、前綴不變**，直接推算會多算一級（休學兩年甚至算出高四而變成空值）。auth 的
@@ -384,12 +384,48 @@ auth 有登入態 → 查權限 → restriction=ban（未過期）
 
 ## 8. 參考實作（可直接抄）
 
-> 標準參考實作在 **`portal` 服務**：`../tpass-portal/src/lib/tpass-auth.ts`（驗章核心）、
-> `../tpass-portal/src/config/portal.ts`（設定）、`../tpass-portal/src/app/api/auth/callback/route.ts`
-> （token 接收）、`../tpass-portal/src/app/api/auth/logout/route.ts`（登出鏈）。**照抄這四個檔**，
-> 只把 `portal` 換成你的服務 id。
+### 8.0 Next.js / TypeScript：用套件（**預設走這條**）
 
-### 8.1 Node / TypeScript（`jose`）— 驗章核心
+驗章別自己抄。它住在 [`tschoolsu/tpass-auth-js`](https://github.com/tschoolsu/tpass-auth-js)，
+四鐵則有測試釘著（錯 aud / 錯 iss / 過期 / alg confusion / 竄改全都有案例）。
+
+```bash
+pnpm add github:tschoolsu/tpass-auth-js#v1.1.1 jose
+```
+
+```ts
+// src/config/auth.ts —— 整個服務只有這裡認識 env
+import "server-only";
+import { configFromEnv, createTpassNextAuth } from "tpass-auth-js/next";
+
+export const tpass = createTpassNextAuth(configFromEnv("FOO_SELF_URL"));
+```
+
+```ts
+// src/app/api/auth/callback/route.ts
+import { tpass } from "@/config/auth";
+export const runtime = "nodejs";
+export const POST = tpass.callbackHandler;
+```
+
+```ts
+// src/app/api/auth/logout/route.ts
+import { tpass } from "@/config/auth";
+export const runtime = "nodejs";
+export const POST = tpass.logoutHandler;
+```
+
+之後每個請求：`const session = await tpass.getSession();`、
+權限：`tpass.permOf(session)`、未登入導向：`tpass.loginUrl("/path")`、
+被 ban 導向：`tpass.deniedUrl()`。
+
+標準用法在 **`portal` 服務**：`../tpass-portal/src/config/portal.ts` 與
+`../tpass-portal/src/app/api/auth/{callback,logout}/route.ts`（把 `portal` 換成你的服務 id）。
+
+> 8.1–8.4 是**手刻版**，留給「不是 Next.js」或「不想吃這個依賴」的服務。
+> 兩者的行為必須一致；有出入時以套件為準（它有測試）。
+
+### 8.1 Node / TypeScript（`jose`）— 驗章核心（手刻版）
 
 ```ts
 // lib/tpass-auth.ts

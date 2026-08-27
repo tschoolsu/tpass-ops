@@ -31,7 +31,7 @@ tags: T-Pass, 手冊
   - [環境變數](#環境變數)
 - [授權：權限管理（permissions claim）](#授權權限管理permissions-claim)
   - [權限模型](#權限模型)
-  - [解析權限：擴充 tpass-auth.ts](#解析權限擴充-tpass-authts)
+  - [解析權限：`tpass.permOf()`](#解析權限tpasspermof)
   - [權限判斷函式](#權限判斷函式)
   - [於頁面與 API 守門](#於頁面與-api-守門)
   - [呈現警告：WarningBanner](#呈現警告warningbanner)
@@ -225,20 +225,23 @@ tpass-lost/
 ├── README.md                    ← 一頁：是什麼、網址、DB、怎麼跑
 ├── AGENTS.md                    ← 給 AI agent 的入口（照抄別的服務改）
 ├── .env.example                 ← 所有 env key + 註解（真值放 .env.local，不進 git）
-├── src/config/lost.ts           ← ★ env 必填清單（REQUIRED）
-├── src/lib/tpass-auth.ts        ← ★ 驗章核心
+├── src/config/lost.ts           ← ★ 綁 env（驗章本體在 tpass-auth-js 套件裡）
 └── src/app/api/auth/
-    ├── callback/route.ts        ← ★ 收 token
-    └── logout/route.ts          ← ★ 登出
+    ├── callback/route.ts        ← ★ 收 token（一行）
+    └── logout/route.ts          ← ★ 登出（一行）
 ```
 
-標星號的四個檔案即登入串接的全部內容，詳見〈整合登入〉。
+標星號的三個檔案即登入串接的全部內容，詳見〈整合登入〉。
 
 ## 整合登入
 
 ```bash
-pnpm add jose
+pnpm add github:tschoolsu/tpass-auth-js#v1.1.1 jose
 ```
+
+**驗章不要自己抄一份。** 它以前是每個服務各一份手抄副本，六份抄到後來開始漂移；
+現在它住在 [`tpass-auth-js`](https://github.com/tschoolsu/tpass-auth-js)，四鐵則有測試守著。
+你要寫的只剩下面這三個小檔（加起來不到 20 行）。
 
 > [!NOTE]
 > 範例裡的 `import "server-only"` 不需要另外安裝，Next 內建解析——它的作用是讓「這個檔被 client
@@ -248,220 +251,84 @@ pnpm add jose
 
 ### 設定檔
 
-`src/config/lost.ts` — 設定集中於此，全部透過 env 讀取：
+`src/config/lost.ts` — 整個服務只有這裡認識 env：
 
 ```ts
 import "server-only";
+import { configFromEnv, createTpassNextAuth } from "tpass-auth-js/next";
 
-// ★ 這個陣列是「env 必填清單」的唯一真相：
-//   服務啟動時靠它報出缺哪些 key，部署時 deploy.sh 也讀它，在 build 前就擋下缺 key 的情況。
-//   之後每加一個必填 env，就要加進來。
-const REQUIRED = [
-  "AUTH_JWKS_URL",
-  "AUTH_AUTHORIZE_URL",
-  "AUTH_LOGOUT_URL",
-  "LOST_SELF_URL",
-  "TPASS_SERVICE_ID",
-  "JWT_ISSUER",
-] as const;
-
-const missing = REQUIRED.filter((key) => !process.env[key]);
-if (missing.length > 0) {
-  throw new Error(
-    `[config/lost] 缺少必填環境變數：${missing.join(", ")}（請檢查 .env.local）`,
-  );
-}
-
-const self = process.env.LOST_SELF_URL!;
-const serviceId = process.env.TPASS_SERVICE_ID!;
-
-// 未登入時導去這裡。returnPath = 登入完成後要回到你站內的哪一頁。
-export function loginUrlFor(returnPath = "/"): string {
-  const u = new URL(process.env.AUTH_AUTHORIZE_URL!);
-  u.searchParams.set("service", serviceId);
-  u.searchParams.set("redirect_uri", `${self}/api/auth/callback`);
-  u.searchParams.set("next", returnPath);
-  return u.toString();
-}
-
-export const lostConfig = {
-  jwksUrl: process.env.AUTH_JWKS_URL!,       // 公鑰來源，你只 fetch 這個
-  loginUrl: loginUrlFor("/"),
-  logoutUrl: `${self}/api/auth/logout`,      // 你自己的登出 route
-  authLogoutUrl: process.env.AUTH_LOGOUT_URL!,
-  selfUrl: self,
-  serviceId,
-  issuer: process.env.JWT_ISSUER!,
-  serviceAudience: `tpass:${serviceId}`,     // ★ 你專屬的 audience
-  ownCookieName: "tpass_token",              // ★ 你自己網域的 cookie
-  cookieSecure: self.startsWith("https://"),
-} as const;
+// 缺 env 就直接 throw（fail closed）。參數是「你自己的網址」那一顆 env 的名字。
+export const tpass = createTpassNextAuth(configFromEnv("LOST_SELF_URL"));
 ```
 
-### 驗章核心
+`configFromEnv` 要的 env（缺哪幾顆它就報哪幾顆）：
 
-`src/lib/tpass-auth.ts` — 驗章核心，安全四鐵則實作於此：
+| env | 意思 |
+| --- | --- |
+| `AUTH_JWKS_URL` | 公鑰來源，你只 fetch 這個 |
+| `AUTH_AUTHORIZE_URL` | 未登入時要去換票的地方 |
+| `AUTH_LOGOUT_URL` | auth 的登出入口 |
+| `TPASS_SERVICE_ID` | 你在註冊表登記的 id（audience 由它派生） |
+| `JWT_ISSUER` | 要與 auth 簽發端完全一致 |
+| `LOST_SELF_URL` | 你自己的完整網址 |
+| `AUTH_DENIED_URL` | 選填；未設就用 authorize 的 origin + `/denied` |
 
-```ts
-import "server-only";
-import { cookies } from "next/headers";
-import { createRemoteJWKSet, jwtVerify } from "jose";
-import { lostConfig } from "@/config/lost";
+拿到的 `tpass` 上面有這些東西，**這就是你需要的全部**：
 
-// 權限 claim 契約：role 三級（admin 隱含 moderator）、restriction 省略＝none、
-// read 是唯一必看欄位（auth 已經算好 = restriction !== "ban"）。詳見〈授權：權限管理〉。
-export type Role = "admin" | "moderator" | "default";
-export type Restriction = "none" | "warning" | "ban";
-
-export interface PermissionEntry {
-  read: boolean;
-  role: Role;
-  restriction?: Restriction;
-  reason?: string;
-  until?: number;
-}
-
-export type PermissionMap = Record<string, PermissionEntry>;
-
-export interface TPassClaims {
-  sub: string;            // 使用者唯一 id（跨服務一致，可當你 DB 的主鍵）
-  email: string;          // 學校信箱
-  name: string;           // 顯示名稱
-  // 權限本體：一般服務 token 只含自己一把 key（{ lost: {...} }）。授權判斷一律看這裡。
-  permissions: PermissionMap;
-  exp: number;
-}
-
-// createRemoteJWKSet 會自動快取公鑰、依 kid 選鑰、金鑰輪替時重抓。不要自己手刻。
-const JWKS = createRemoteJWKSet(new URL(lostConfig.jwksUrl));
-
-export async function verifySession(token: string): Promise<TPassClaims | null> {
-  try {
-    const { payload } = await jwtVerify(token, JWKS, {
-      algorithms: ["EdDSA"],                // 鐵則 1：鎖演算法
-      issuer: lostConfig.issuer,            // 鐵則 2：票是這個 auth 簽的
-      audience: lostConfig.serviceAudience, // 鐵則 3：票是簽給「我」的
-      // 鐵則 4：exp —— jose 預設就會驗，別關掉
-    });
-    return {
-      sub: payload.sub as string,
-      email: payload.email as string,
-      name: payload.name as string,
-      permissions: (payload.permissions as PermissionMap | undefined) ?? {},
-      exp: payload.exp as number,
-    };
-  } catch {
-    return null; // 過期 / 竄改 / 錯 iss / 錯 aud / 錯演算法 → 一律當「未登入」
-  }
-}
-
-// 每個請求都用這個認出使用者。
-export async function getSession(): Promise<TPassClaims | null> {
-  const token = (await cookies()).get(lostConfig.ownCookieName)?.value;
-  if (!token) return null;
-  return verifySession(token);
-}
-
-// 安全預設值：claim 缺 permissions、或缺你要查的 serviceId 這把 key（舊票／查別服務）
-// → 視為「能讀、預設角色」，不因缺資料而誤鎖使用者。不傳 serviceId 預設查自己這個服務。
-const DEFAULT_PERMISSION_ENTRY: PermissionEntry = { read: true, role: "default" };
-
-export function permOf(
-  session: TPassClaims,
-  serviceId: string = lostConfig.serviceId,
-): PermissionEntry {
-  return session.permissions[serviceId] ?? { ...DEFAULT_PERMISSION_ENTRY };
-}
-```
-
-四鐵則缺一不可：
-
-1. **鎖定 `algorithms: ["EdDSA"]`**——若不鎖定，任何人皆可利用公開的公鑰偽造 token（將 header 的 `alg` 改為 `HS256`，未鎖定演算法的函式庫會將公鑰誤用為對稱密鑰驗證通過），等同任何人皆可冒充任意使用者登入。
-2. **檢查 `issuer`**——確保票證由指定的 auth 簽發，而非其他來源。
-3. **檢查 `audience` = `tpass:<你的id>`**——確保票證是簽發給本服務的。遺漏此檢查，其他服務的 token 即可用於冒用本服務，服務隔離形同虛設。
-4. **檢查 `exp`**——主流函式庫預設會驗證，需確認未被關閉。
-
-驗證失敗一律視為「未登入」並導向登入流程。**不應將錯誤訊息回傳給前端。**
+| 用它 | 做什麼 |
+| --- | --- |
+| `await tpass.getSession()` | 讀目前登入者（驗自己的 cookie），沒有或驗不過就是 `null` |
+| `tpass.permOf(session)` | 這個人在你這個服務的權限（見〈授權：權限管理〉） |
+| `tpass.loginUrl("/some/path")` | 未登入時要導去的網址 |
+| `tpass.deniedUrl()` | 被 ban（`read === false`）時導去的網址 |
+| `tpass.callbackHandler` | callback route 的 POST |
+| `tpass.logoutHandler` | logout route 的 POST |
+| `await tpass.verifyToken(token)` | 自己手上有 token 時直接驗（很少用到） |
 
 ### 接收 token
 
-`src/app/api/auth/callback/route.ts`：
+`src/app/api/auth/callback/route.ts` — auth 用 form_post 把票送到這裡：
 
 ```ts
-import { NextResponse, type NextRequest } from "next/server";
-import { lostConfig } from "@/config/lost";
-import { verifySession } from "@/lib/tpass-auth";
+import { tpass } from "@/config/lost";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
-  const form = await request.formData();
-  const token = form.get("token");
-  const next = String(form.get("next") ?? "/");
-  if (typeof token !== "string" || !token) {
-    return new NextResponse("Bad request", { status: 400 });
-  }
-
-  const claims = await verifySession(token);
-  if (!claims) return new NextResponse("Invalid token", { status: 401 });
-
-  // next 只能是站內路徑，否則有人能拿你的 callback 當跳板導去釣魚站（Open Redirect）。
-  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
-
-  const response = NextResponse.redirect(new URL(safeNext, lostConfig.selfUrl), 303);
-  response.cookies.set(lostConfig.ownCookieName, token, {
-    httpOnly: true,                       // 瀏覽器 JS 讀不到 → XSS 偷不走
-    sameSite: "lax",
-    secure: lostConfig.cookieSecure,
-    path: "/",
-    maxAge: Math.max(0, claims.exp - Math.floor(Date.now() / 1000)), // 跟 token 同壽命
-    // ★ 不設 domain → host-only。這行「沒寫的東西」就是隔離的來源，別手癢加上去。
-  });
-  return response;
-}
+export const POST = tpass.callbackHandler;
 ```
+
+它做的事：驗章（四鐵則）→ 通過才把 token 寫進**你自己網域的 host-only cookie**
+（`HttpOnly` / `SameSite=Lax` / 跟 token 同壽命 / 不設 `Domain`）→ 導回站內路徑。
+表單帶的 `next` 只接受站內路徑，外部網址會被打回 `/`（防 Open Redirect）。
+驗不過一律 401 且不寫 cookie。
 
 ### 登出
 
-`src/app/api/auth/logout/route.ts` — 登出須清除兩處：本服務自身的 cookie（僅本服務可清除）與 auth 的登入態。
+`src/app/api/auth/logout/route.ts` — 登出要清兩處：你自己的 cookie（只有你能清）與 auth 的登入態。
 
 ```ts
-import { NextResponse } from "next/server";
-import { lostConfig } from "@/config/lost";
+import { tpass } from "@/config/lost";
 
 export const runtime = "nodejs";
 
-const escapeHtml = (s: string) =>
-  s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
-export async function POST() {
-  const authLogout = `${lostConfig.authLogoutUrl}?redirect_uri=${encodeURIComponent(lostConfig.selfUrl)}`;
-  const html = `<!doctype html>
-<html lang="zh-Hant"><head><meta charset="utf-8"><title>登出中…</title></head>
-<body onload="document.forms[0].submit()">
-<form method="post" action="${escapeHtml(authLogout)}">
-<noscript><button type="submit">完成登出</button></noscript>
-</form>
-</body></html>`;
-  const response = new NextResponse(html, {
-    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
-  });
-  response.cookies.set(lostConfig.ownCookieName, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: lostConfig.cookieSecure,
-    path: "/",
-    maxAge: 0,
-  });
-  return response;
-}
+export const POST = tpass.logoutHandler;
 ```
 
-前端僅需一個表單：
+前端只需要一個表單：
 
 ```tsx
 <form method="post" action="/api/auth/logout">
   <button type="submit">登出</button>
+</form>
+```
+
+想讓使用者登出後回到指定頁（例如「切換帳號」——根路徑未登入通常會自動導去 authorize，
+使用者根本來不及選帳號），表單多帶一個站內路徑即可：
+
+```tsx
+<form method="post" action="/api/auth/logout">
+  <input type="hidden" name="next" value="/switch-account" />
+  <button type="submit">切換帳號</button>
 </form>
 ```
 
@@ -470,24 +337,39 @@ export async function POST() {
 >
 > 其他服務的 cookie 會保留至各自過期（最長＝auth 端 `JWT_TTL_SECONDS`，建議 45 分鐘）。這是「一服務一張票」設計下的已知取捨：登出不再是全生態即時生效，而是「auth 不再發新票 + 舊票自然過期」。
 
+### 為什麼不自己刻驗章（安全四鐵則）
+
+套件替你做掉的是這四件事。**如果你的服務不是 Next.js、或根本不是 JS**，就得自己實作，
+那時這四點缺一不可（其他語言的範本見〈SSO 合約〉）：
+
+1. **鎖定 `algorithms: ["EdDSA"]`**——若不鎖定，任何人皆可利用公開的公鑰偽造 token（將 header 的 `alg` 改為 `HS256`，未鎖定演算法的函式庫會將公鑰誤用為對稱密鑰驗證通過），等同任何人皆可冒充任意使用者登入。
+2. **檢查 `issuer`**——確保票證由指定的 auth 簽發，而非其他來源。
+3. **檢查 `audience` = `tpass:<你的id>`**——確保票證是簽發給本服務的。遺漏此檢查，其他服務的 token 即可用於冒用本服務，服務隔離形同虛設。
+4. **檢查 `exp`**——主流函式庫預設會驗證，需確認未被關閉。
+
+驗證失敗一律視為「未登入」並導向登入流程。**不應將錯誤訊息回傳給前端。**
+
+> [!WARNING]
+> 漏掉第 3 點**不會有任何徵兆**：登入照樣成功、測試照樣綠，只有在別人拿其他服務的通行證
+> 來打你的時候才會發現。這正是它被收進套件的原因——不要在自己的 repo 裡復活一份手抄副本。
+
 ### 頁面守門
 
 ```tsx
 // src/app/page.tsx（Server Component）
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/tpass-auth";
-import { loginUrlFor } from "@/config/lost";
+import { tpass } from "@/config/lost";
 
 export default async function Page() {
-  const user = await getSession();
-  if (!user) redirect(loginUrlFor("/")); // 未登入 → 導去 auth
+  const user = await tpass.getSession();
+  if (!user) redirect(tpass.loginUrl("/")); // 未登入 → 導去 auth
 
   return <p>哈囉 {user.name}（{user.email}）</p>;
 }
 ```
 
 > [!WARNING]
-> 每個 route handler / server action 都必須各自呼叫 `getSession()` 進行檢查，不能僅依賴 layout 或頁面層級的攔截——layout 無法阻擋直接呼叫 API 的請求。
+> 每個 route handler / server action 都必須各自呼叫 `tpass.getSession()` 進行檢查，不能僅依賴 layout 或頁面層級的攔截——layout 無法阻擋直接呼叫 API 的請求。
 
 ### 環境變數
 
@@ -539,11 +421,10 @@ interface PermissionEntry {
 > 舊版曾有 `groups` claim（`groups.includes("admin")`），已於 2026-07-27 從 auth 簽發邏輯
 > 與所有消費端程式碼中移除。**新服務只認 `permissions`**，不會也不應該再寫 `groups.includes(...)`。
 
-### 解析權限：擴充 tpass-auth.ts
+### 解析權限：`tpass.permOf()`
 
-若照〈驗章核心〉的範例，`permOf()` 已經在 `src/lib/tpass-auth.ts` 裡了（缺 claim 或缺該
-serviceId 這把 key 時安全預設為 `{read:true, role:"default"}`，不會因缺資料誤鎖使用者）。
-接下來的權限判斷都建立在它之上。
+`permOf()` 已經在套件裡了（缺 claim 或缺該 serviceId 這把 key 時安全預設為
+`{read:true, role:"default"}`，不會因缺資料誤鎖使用者）。接下來的權限判斷都建立在它之上。
 
 ### 權限判斷函式
 
@@ -551,14 +432,15 @@ serviceId 這把 key 時安全預設為 `{read:true, role:"default"}`，不會�
 
 ```ts
 import "server-only";
-import { permOf, type TPassClaims } from "@/lib/tpass-auth";
+import type { TPassClaims } from "tpass-auth-js";
+import { tpass } from "@/config/lost";
 
 export function isAdmin(session: TPassClaims | null | undefined): boolean {
-  return !!session && permOf(session).role === "admin";
+  return !!session && tpass.permOf(session).role === "admin";
 }
 
 export function isModeratorOrAbove(session: TPassClaims | null | undefined): boolean {
-  return !!session && permOf(session).role !== "default";
+  return !!session && tpass.permOf(session).role !== "default";
 }
 ```
 
@@ -567,9 +449,9 @@ export function isModeratorOrAbove(session: TPassClaims | null | undefined): boo
 ```ts
 import "server-only";
 import { redirect } from "next/navigation";
-import { getSession, permOf, type TPassClaims } from "@/lib/tpass-auth";
+import type { TPassClaims } from "tpass-auth-js";
+import { tpass } from "@/config/lost";
 import { isAdmin } from "@/config/admin";
-import { loginUrlFor, lostConfig } from "@/config/lost";
 
 export class ForbiddenError extends Error {
   constructor() {
@@ -579,11 +461,11 @@ export class ForbiddenError extends Error {
 }
 
 export async function requireSession(returnPath = "/"): Promise<TPassClaims> {
-  const session = await getSession();
-  if (!session) redirect(loginUrlFor(returnPath));
+  const session = await tpass.getSession();
+  if (!session) redirect(tpass.loginUrl(returnPath));
   // read 守門：正常情況 ban 在 authorize 就被攔下；這裡是給「舊票在被 ban 之後、
   // 過期之前」窗口用的防禦層（見 tpass-auth/INTEGRATION.md §3.5）。
-  if (!permOf(session).read) redirect(`${process.env.AUTH_DENIED_URL}?service=${lostConfig.serviceId}`);
+  if (!tpass.permOf(session).read) redirect(tpass.deniedUrl());
   return session;
 }
 
@@ -605,7 +487,7 @@ export async function requireAdmin(returnPath = "/admin"): Promise<TPassClaims> 
 ```tsx
 // src/app/admin/layout.tsx
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/tpass-auth";
+import { tpass } from "@/config/lost";
 import { isAdmin } from "@/config/admin";
 import { loginUrlFor } from "@/config/lost";
 
@@ -614,7 +496,7 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
+  const session = await tpass.getSession();
   if (!session) redirect(loginUrlFor("/admin"));
   if (!isAdmin(session)) {
     return <p>你沒有存取此頁面的權限。</p>; // 替換為你的禁止存取畫面
@@ -630,11 +512,11 @@ route handler 於內部自行檢查，未通過回應 `403`：
 
 ```ts
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/tpass-auth";
+import { tpass } from "@/config/lost";
 import { isAdmin } from "@/config/admin";
 
 export async function GET() {
-  const session = await getSession();
+  const session = await tpass.getSession();
   if (!session || !isAdmin(session)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
@@ -660,7 +542,7 @@ export async function deleteItem(id: string) {
 可直接抄的範本：`tpass-portal/src/components/WarningBanner.tsx`。核心邏輯只有兩行：
 
 ```tsx
-const perm = permOf(session);
+const perm = tpass.permOf(session);
 {perm.restriction === "warning" && <WarningBanner reason={perm.reason} until={perm.until} />}
 ```
 
@@ -670,7 +552,7 @@ const perm = permOf(session);
 
 ```ts
 import { isAdmin } from "@/config/admin";
-import type { TPassClaims } from "@/lib/tpass-auth";
+import type { TPassClaims } from "tpass-auth-js";
 
 export function canReadResponses(
   session: TPassClaims,
@@ -727,7 +609,7 @@ superadmin；不能調降自己在 auth 的 role。ban 需二次確認且必填�
 - [ ] 在 `/admin` 對某人下 `ban` + 原因 → 他重新走一次登入被導去 `<auth>/denied?service=<你的id>`，看得到原因與（若有設）解封時間。
 - [ ] 解除 ban 後，他能重新登入使用。
 - [ ] 對某人下 `warning` → 他登入後在你的服務看得到警告呈現（你自訂的版型，例如照抄 `WarningBanner`）。
-- [ ] `permOf(session)` 對缺資料的情況（例如剛登記還沒設定）回傳安全預設值 `{read:true, role:"default"}`，不會誤鎖使用者。
+- [ ] `tpass.permOf(session)` 對缺資料的情況（例如剛登記還沒設定）回傳安全預設值 `{read:true, role:"default"}`，不會誤鎖使用者。
 
 ## 本機開發
 
