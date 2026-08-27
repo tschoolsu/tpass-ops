@@ -466,6 +466,43 @@ tpass backup run          # 驗證：healthchecks 那頁應該立刻變綠
 沒填就完全不動作，不會報錯。**`--dry-run` 也不會 ping**——那段在 dry-run 的 `exit 0`
 之後，假的心跳比沒有心跳更糟。
 
+### 🚧 規劃中：改用自架的 Uptime Kuma（2026-08-27，部員提案）
+
+**狀態：尚未執行。** 部員提議改用 [Uptime Kuma](https://github.com/louislam/uptime-kuma)
+（開源自架監控），由**部員自己的主機**部署，部長先拉下來設定、部員負責上線。
+下面是決定要不要換、以及換的時候必須守住的東西。
+
+**它解決什麼**（真的有價值，不是換個好看的）：
+
+- **內建 push monitor＝死人開關**。上面那個「🚧 尚未啟用」的洞它直接補掉，
+  而且不必再多開一個 healthchecks.io 帳號。`backup.sh` 的 `BACKUP_HEARTBEAT_URL`
+  照樣能用——**填 Kuma 的 push URL 就好，腳本一行都不用改**。
+- 檢查間隔可以短於 5 分鐘，UptimeRobot 免費方案「5～7 分鐘才叫」的硬限制消失。
+- monitor 數量無上限，新服務上線不必省著開。
+- 不必把 Discord webhook 交給第三方（UptimeRobot 的唯讀 API key 讀得出 webhook 全文）。
+  Kuma 支援 Discord 通知，可以送同一條維運頻道。
+
+**換的時候不可以違反的兩條**：
+
+1. 🔴 **監控絕對不能跟被監控的東西住同一台機器。** 主機自己死掉時，只有跑在主機外的
+   東西叫得出來——這是 `scripts/lib/monitor.mjs` 檔頭那句話的全部意義。
+   部員那台是另一台機器就沒問題，但**要確認過，不要假設**。
+2. 🔴 **不要急著關掉 UptimeRobot。** 至少並行到 Kuma 連續叫對幾次為止。
+   並行期間 Kuma 死掉還有 UptimeRobot 兜著；直接切過去的話，
+   **監控自己死掉是靜默的**——沒有東西會來告訴你「你的監控不見了」。
+
+**交接風險比 UptimeRobot 更重，要先想好**：UptimeRobot 那邊的處理是「帳號開在
+`studentcouncil@` 官方信箱，不隨個人畢業」（見上）。自架版沒有這個解——
+**機器本身屬於一個部員**。他畢業、退部、或那台主機停掉，監控就整個消失。
+換之前先講好：那台機器是誰的、帳單誰付、他離開時交給誰。這題 C5（交接重疊期）躲不掉。
+
+**工程成本（具體）**：`tpass status` 的「== 監控 ==」那段打的是 UptimeRobot v2 API
+（`scripts/lib/monitor.mjs`）。那段唯一的價值是**拿 monitor 清單對照註冊表，抓出
+「`deployed:true` 卻沒有人開監控」的服務**——換到 Kuma 要重寫成打它的 API。
+**並行期間可以先不動**：UptimeRobot 還在，那段就還準。真的關掉 UptimeRobot 那天再改，
+不要為了還沒發生的事先改。
+
+
 ---
 
 ## 6.1 備份與還原

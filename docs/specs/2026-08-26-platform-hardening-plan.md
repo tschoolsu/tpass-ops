@@ -478,6 +478,13 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       在那之前「cron 根本沒觸發」仍然只有主動跑 `tpass status` 才看得到。
       ② **新服務上線要手動加 monitor**，沒有自動化；`tpass status` 的 ⚠️ 是補救不是預防（見 C3）。
       ③ UptimeRobot 帳號同樣**不隨個人畢業**才安全（見 C5）。
+      📌 **2026-08-27 後續**：部員提議改用自架的 **Uptime Kuma**（跑在他自己的主機，
+      他負責部署）。值得做——它內建 push monitor，①那個死人開關的洞直接補掉，
+      `backup.sh` 連改都不用改（`BACKUP_HEARTBEAT_URL` 填 Kuma 的 push URL 即可）。
+      三個但書寫在 `docs/ONBOARDING.md` §6：**不能跟被監控的主機同一台**、
+      **先跟 UptimeRobot 並行不要直接切**（監控自己死掉是靜默的）、
+      **機器屬於個人的交接風險比 UptimeRobot 帳號更重**（C5）。
+      `scripts/lib/monitor.mjs` 打的是 UptimeRobot v2 API，並行期間先不要動它。
 - [x] A3 `notes` 去留決定（2026-08-26 完成）→ **選「修好上線」**
       決定的依據：repo 已從 `Ray1020-a` 轉進 `tschoolsu` 組織，原本最貴的障礙
       （要 commit 進別人的 repo）消失了。資料量很小（2 篇筆記、0 協作者、1 個測試 PDF），
@@ -556,6 +563,16 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
       Rules → Redirect Rules，確認 apex 那條的 **target host 是 `portal.tschoolsu.org`
       而不是 `http.host`**，並檢查有沒有殘留的舊 Page Rule 先攔截到。
       DNS 本身沒問題（apex 與 www 都有 A 記錄指向 Cloudflare）。
+      🔎 **2026-08-27 找到原因**：那條 redirect rule 的目標主機名跟來源一樣——
+      運算式 `(http.host eq "tschoolsu.org")`，動態目標
+      `concat("https://tschoolsu.org", http.request.uri.path)`，**少了 `portal.`**。
+      建議不是修它，是把 apex 與 www 併成一條靜態規則
+      （`http.host in {"tschoolsu.org" "www.tschoolsu.org"}` → 靜態
+      `https://portal.tschoolsu.org`，301），順便消掉兩條規則要手動排「冪次」的特殊情況。
+      apex 底下沒有內容，保留路徑只會變成 portal 的 404，所以用靜態目標、不保留路徑。
+      ⚠️ **驗證一定要用 curl 或無痕視窗。** 301 會被瀏覽器永久快取：部長自己的
+      Chrome 存著舊的正確轉址，連進去一切正常，而新訪客拿到的是迴圈——
+      **瀏覽器測出來的「好了」不算數。**
       🟢 **UptimeRobot 那顆 monitor 已經開回來，而且正確地紅**——`tpass status` 的
       「== 監控 ==」顯示 `tschoolsu.org down`。轉址修好它就會轉綠，那才是驗收通過。
       （值得記一筆：301 在接受碼 2xx+3xx 範圍內，本來擔心迴圈會被判成綠燈；
