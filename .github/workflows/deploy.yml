@@ -46,3 +46,30 @@ jobs:
           echo "✗ 未知或未上線的服務「${SERVICE}」" >&2
           echo "  可用：$valid" >&2
           exit 1
+
+      # runner 是 GitHub 的一台全新電腦，什麼都不知道。這一步把「主機在哪、
+      # 用誰的身分、憑什麼相信對方」三樣東西從 Secrets 佈到它的 ~/.ssh。
+      - name: 設定 SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY"     > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keygen -lf ~/.ssh/id_ed25519   # 只印指紋，確認金鑰完整讀進來了
+
+      # 主機上那把金鑰被 authorized_keys 的 command="…/ci-deploy.sh" 綁死，
+      # 所以這裡送過去的字串只會被當成服務 id，不會被當指令執行。
+      #
+      # known_hosts 走 Secrets 而不是 StrictHostKeyChecking=accept-new：
+      # 後者是首次連線就無條件信任；而且主機位址本身是機密，
+      # 不該出現在這個 public repo 的明文 workflow 檔裡。
+      - name: 部署
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USERNAME: ${{ secrets.DEPLOY_USER }}
+          SERVICE: ${{ inputs.service }}
+        run: ssh -o StrictHostKeyChecking=yes "$USERNAME@$HOST" "$SERVICE"
