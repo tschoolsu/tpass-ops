@@ -758,8 +758,11 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
       公告這個功能不存在。
       **驗收證據**（本機）：`portal /feedback` → 307 → `https://form.lvh.me:3002/f/feedback`
       → 200 且標題是「回報問題給數位部」。
-      ⚠️ **正式站還沒有這份問卷**：seed 要跑在主機的 `t_form` 上，而且要一個真人的
-      `sub`（到 auth 的 `/admin` 找）。指令：
+      ⚠️ **正式站還沒有這份問卷**：seed 要跑在主機的 `t_form` 上，而且要一個真人的 `sub`。
+      **`sub` 不在 auth 的 `/admin`**（那頁只列 email／姓名／權限）——登入任一服務後從
+      DevTools → Application → Cookies 複製 `tpass_token`，解 payload 的 `sub`：
+      `node -e 'console.log(JSON.parse(Buffer.from("<token>".split(".")[1],"base64url")).sub)'`。
+      指令：
       `FEEDBACK_OWNER_SUB=… FEEDBACK_OWNER_EMAIL=… pnpm db:seed:feedback`（在主機的
       `/home/service/tpass-form` 底下，`TPASS_REGISTRY_PATH` 指到主機那份註冊表）。
       **沒跑之前，正式站的「回報問題」會 404。**
