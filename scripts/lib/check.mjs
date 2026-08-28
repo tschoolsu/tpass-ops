@@ -7,6 +7,15 @@ import { repoDir, resolveTarget } from "./registry.mjs";
 import { run } from "./sh.mjs";
 
 // 解析 repo 的 REQUIRED[] env key（與 deploy/deploy.sh 的 awk 版同語意）
+// tpass-auth-js 的 configFromEnv() 一定會要的五顆（第六顆是呼叫時傳進去的 <SVC>_SELF_URL）。
+const TPASS_AUTH_KEYS = [
+  "AUTH_JWKS_URL",
+  "AUTH_AUTHORIZE_URL",
+  "AUTH_LOGOUT_URL",
+  "TPASS_SERVICE_ID",
+  "JWT_ISSUER",
+];
+
 export function requiredEnvKeys(svc) {
   const cfgDir = join(repoDir(svc), "src", "config");
   const keys = new Set();
@@ -15,6 +24,15 @@ export function requiredEnvKeys(svc) {
     const src = readFileSync(join(cfgDir, f), "utf8");
     for (const m of src.matchAll(/REQUIRED\s*=\s*\[([^\]]*)\]/gs)) {
       for (const k of m[1].matchAll(/"([A-Z][A-Z0-9_]*)"/g)) keys.add(k[1]);
+    }
+    // C1 之後：SSO 那幾顆 env 的必填檢查搬進套件的 configFromEnv()，服務的 REQUIRED 陣列
+    // 只剩自己的 key。掃不到它們，缺 key 就不會在這裡被擋下，而是等到 build 匯入 config
+    // 才炸（正是 2026-07-28 那個坑）。所以認得那個呼叫，把套件要的 key 補回來。
+    // ⚠️ 這份清單是 tpass-auth-js 的 configFromEnv 的複本——ops 層不能 import 服務的依賴。
+    //    套件那邊改必填清單時，這裡要跟著改（那份的真相在 tpass-auth-js/src/index.ts）。
+    for (const m of src.matchAll(/configFromEnv\(\s*"([A-Z][A-Z0-9_]*)"/g)) {
+      keys.add(m[1]);
+      for (const k of TPASS_AUTH_KEYS) keys.add(k);
     }
   }
   return keys;

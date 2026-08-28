@@ -91,11 +91,19 @@ check_env() {
 const fs = require("fs"), path = require("path");
 const dir = path.join(process.argv[1], "src", "config");
 const out = new Set();
+// tpass-auth-js 的 configFromEnv() 一定會要的五顆（第六顆是呼叫時傳進去的 <SVC>_SELF_URL）。
+// C1 之後這些 key 不在服務的 REQUIRED 陣列裡了，掃不到就等於少檢查。
+// ⚠️ 這是套件那份清單的複本——ops 層不能 import 服務的依賴。套件改必填清單時這裡要跟著改。
+const PKG = ["AUTH_JWKS_URL", "AUTH_AUTHORIZE_URL", "AUTH_LOGOUT_URL", "TPASS_SERVICE_ID", "JWT_ISSUER"];
 if (fs.existsSync(dir)) {
   for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
     const src = fs.readFileSync(path.join(dir, f), "utf8");
     for (const m of src.matchAll(/REQUIRED\s*=\s*\[([^\]]*)\]/gs))
       for (const k of m[1].matchAll(/"([A-Z][A-Z0-9_]*)"/g)) out.add(k[1]);
+    for (const m of src.matchAll(/configFromEnv\(\s*"([A-Z][A-Z0-9_]*)"/g)) {
+      out.add(m[1]);
+      for (const k of PKG) out.add(k);
+    }
   }
 }
 console.log([...out].sort().join("\n"));
