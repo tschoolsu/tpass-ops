@@ -35,6 +35,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-auth-js/` | **驗章共用套件** | — | **public repo**，並排 clone（非必要——各服務是用 git URL 安裝它，不是相對路徑）。消費端的驗章四鐵則、callback/logout route handler 都在這裡，有 27 個測試守著。**2026-08-27 起六個消費端都吃它，不要再在服務裡手抄 `lib/tpass-auth.ts`。** |
 | `tpass-registry/` | **服務註冊表（唯一真相）** | — | **public repo**，並排 clone。id/目錄/子網域/port/DB 策略/大廳卡片全在 `services.json`；auth 白名單、portal 卡片、pm2、deploy 全部從它派生，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
+| `monitoring/` | **監控**（Uptime Kuma 自架） | `https://status.tschoolsu.org` | docker-compose + 狀態頁 CSS + 給部員的部署手冊。**Kuma 本體跑在部員自己的機器上，不是 T-Pass 主機**（監控跟被監控物同機＝主機一死兩個一起消失）。`data/` 是 gitignored 的 SQLite，靠私下傳檔轉交。 |
 | `docs/` | ops 文檔 | — | `handbook/`＝**給部員看、手動同步到團隊 HackMD 的四篇**（服務串接指南 / SSO 合約 / Design System / 註冊表 SOP），索引見 `docs/handbook/README.md`。根目錄留 ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。`docs/specs/` 是跨 repo 功能的實作規格暫存區，不是 ops 文檔。 |
 
 > **git repos**（2026-08-27 核對）：**全部都是 public，包含 `tpass-ops` 本身**（＝頂層）。
@@ -74,6 +75,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | **開發 / 部署 / 主機 / nginx / Cloudflare / 排錯**（自給自足） | `docs/ONBOARDING.md`（`tpass` CLI 為唯一入口） | 🟢 權威 |
 | **服務清單 / port / DB 策略 / 大廳卡片** | `tpass-registry/services.json`（唯一真相，public repo）；欄位定義見該 repo `README.md` | 🟢 權威 |
 | **改服務註冊表**（新增服務 / 改欄位 / 上線翻 `deployed` / 主機紅線 / 改完誰重部署） | `docs/handbook/04-registry-sop.md` | 🟢 權威 |
+| **監控 / 告警 / 備份死人開關**（現況、紅線、轉換狀態） | `docs/ONBOARDING.md` §6；部員部署版＝`monitoring/HANDOFF.md` | 🟢 權威 |
 | **安全審查發現與狀態** | `docs/SECURITY-REVIEW.md` | 🟢 權威 |
 | **權限怎麼管**（role/restriction、ban/warning、panel 操作） | auth 的 `/admin` panel（實際管理介面）＋ `tpass-auth/INTEGRATION.md` §3（claim 契約與生效時間） | 🟢 權威 |
 | **UI 風格 / design system** | `tpass-portal/docs/design.md` | 🟢 權威 |

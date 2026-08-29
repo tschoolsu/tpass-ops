@@ -137,6 +137,30 @@ gh pr create --fill
 
 卡片要出現在大廳，三個條件必須同時成立：`enabled: true` **且** `deployed: true` **且**有 `portal` 區塊。
 
+**翻牌的同時要開一個監控**——這是唯一沒有被註冊表自動涵蓋的一步。
+上線卻沒有人監控的服務，掛了只能等有學生在群組抱怨。
+
+到 [status.tschoolsu.org](https://status.tschoolsu.org) 的後台 → Add New Monitor：
+
+| 欄位 | 填什麼 |
+| --- | --- |
+| Monitor Type | HTTP(s) |
+| Friendly Name | 你在註冊表填的 `name`（會顯示給全校看，不要填 id） |
+| URL | `https://<subdomain>.tschoolsu.org/` |
+| Heartbeat Interval | 60 |
+| **Accepted Status Codes** | **`200-399`** |
+| Notifications | 勾維運頻道的 Discord |
+
+> 🔴 **`200-399` 那格一定要改。** 消費端未登入會回 **307** 導向 auth，不是 200。
+> 用預設的 `200-299` 會讓你的服務全天顯示紅色，然後沒人再看告警——
+> 假警報比沒有告警更糟。
+
+（管監控那台機器的人可以省掉手動：`node monitoring/seed.mjs --notify` 會從註冊表
+把缺的 monitor 補齊並加進狀態頁。細節見 `monitoring/HANDOFF.md` §6。）
+
+漏掉了也有補救：`tpass status` 會拿 Kuma 的 monitor 清單對照這份註冊表，
+把「`deployed:true` 卻沒有人開監控」的服務標出來。但那要有人主動去跑。
+
 ---
 
 ## merge 之後怎麼生效

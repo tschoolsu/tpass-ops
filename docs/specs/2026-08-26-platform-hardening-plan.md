@@ -288,9 +288,14 @@ pm2 cwd 漂移偵測。這個任務只是換一個發動的地方。
 
 #### B6 — Uptime Kuma 調好後轉交部員自架
 
-> 接手 A2 留下的洞。**技術判斷、兩條紅線、交接風險、工程成本全都已經寫在
-> `docs/ONBOARDING.md` §6 的「🚧 規劃中：改用自架的 Uptime Kuma」**——動手前讀那一節，
-> 這裡只記待辦與分工，不重複內容。
+> 🚧 **進行中（2026-08-28）。設計已定案並開始實作，動手前先讀
+> `docs/specs/2026-08-28-uptime-kuma-design.md`**——那份是這一項的權威文件，
+> 下面這段是它定案前的原始待辦，保留作為脈絡。
+>
+> **兩處已經被推翻，不要照做**：
+> ① 紅線二（「不要急著關掉 UptimeRobot」）改了——Kuma 上線後 UptimeRobot 整個關掉，
+> 由 `.github/workflows/kuma-watchdog.yml` 接手「監控的監控」。
+> ② 因此 `scripts/lib/monitor.mjs` **已經改寫**成打 Kuma 的 `/metrics`，不是「並行期間先不動」。
 
 **為什麼在 B 層而不是 A 層**：監控已經有了（A2 的 UptimeRobot），這不是從零到一。
 它補的是 A2 的①（**死人開關**——免費版 UptimeRobot 沒有 heartbeat，Kuma 內建 push monitor，
@@ -766,7 +771,16 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
       `FEEDBACK_OWNER_SUB=… FEEDBACK_OWNER_EMAIL=… pnpm db:seed:feedback`（在主機的
       `/home/service/tpass-form` 底下，`TPASS_REGISTRY_PATH` 指到主機那份註冊表）。
       **沒跑之前，正式站的「回報問題」會 404。**
-- [ ] B6 Uptime Kuma 調好後轉交部員自架（接手 A2 的死人開關洞）
+- [~] B6 Uptime Kuma 調好後轉交部員自架（接手 A2 的死人開關洞）
+      **2026-08-28 進行中**，設計＝`docs/specs/2026-08-28-uptime-kuma-design.md`。
+      已完成：`monitoring/`（compose pin 2.5.3 + 狀態頁 CSS + HANDOFF.md + 一次性 seed 腳本）、
+      `.github/workflows/kuma-watchdog.yml`（監控的監控）、`monitor.mjs` 改打 Kuma `/metrics`、
+      ONBOARDING §6 與 registry SOP 同步更新。
+      未完成：部員實際部署 + Cloudflare Tunnel/Access + `status.tschoolsu.org`、
+      勾上 Discord 通知、填主機 `backup.env` 的 `BACKUP_HEARTBEAT_URL`、
+      關掉 UptimeRobot（要在看門狗確認會叫之後）、C5 的交接條件三格。
+      ⚠️ 過渡期副作用：`monitor.mjs` 已改讀 Kuma，所以在部員機器上線前
+      `tpass status` 的「== 監控 ==」會顯示「未設定，跳過」。
 - [x] C1 驗章抽成套件（2026-08-27 完成，**六個服務全部切換**）
       套件：[`tschoolsu/tpass-auth-js`](https://github.com/tschoolsu/tpass-auth-js)（public，v1.1.1）。
       `tpass-auth-js` 只依賴 jose（`createTpassAuth` / `configFromEnv`）；

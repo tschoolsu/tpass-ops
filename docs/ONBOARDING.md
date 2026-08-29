@@ -409,22 +409,22 @@ scripts/ssh.sh '<cmd>'      # 跑單一指令
 
 ## 6. 監控
 
-兩層，擋的是不同的東西：
+三層，擋的是不同的東西：
 
 | 層 | 誰在看 | 擋什麼 |
 | --- | --- | --- |
-| **UptimeRobot**（外部，5 分鐘一次，全天無休） | 機器 | 站掛了。**主機整台死掉時只有它叫得出來**——跑在主機上的東西都跟著死了。 |
-| ~~備份的死人開關~~ | — | **尚未啟用**。「每日備份根本沒跑」目前只有 `tpass status` 會顯示，要人主動去看。見下。 |
+| **Uptime Kuma**（自架，跑在部員的機器，60 秒一次，全天無休） | 機器 | 站掛了。**主機整台死掉時只有它叫得出來**——跑在主機上的東西都跟著死了。 |
+| **GitHub Actions 看門狗**（`.github/workflows/kuma-watchdog.yml`） | 機器 | **監控自己掛了。** Kuma 住在一台個人機器上，它斷網或關機時沒有任何東西會出聲，而沉默跟正常長得一模一樣。 |
 | **`tpass status`**（本機發動，人主動跑） | 人 | 看得比較深：pm2 重啟數、記憶體、程式碼版本落後幾個 commit、最後備份時間、監控覆蓋率 |
 
-前者回答「有沒有事」，後者回答「到底怎麼了」。**收到告警之後跑的是後者。**
+前兩層回答「有沒有事」，第三層回答「到底怎麼了」。**收到告警之後跑的是第三層。**
 
 ```bash
 scripts/tpass status
 # == 本機 dev ==        port 探測，看本機有沒有在跑
 # == 主機 pm2 ==        online / ↺重啟數 / 記憶體 / uptime
 # == 主機程式碼版本 ==   各服務 HEAD vs origin/main
-# == 監控 ==            UptimeRobot 各 monitor 的 up/down + 漏掉監控的服務
+# == 監控 ==            Kuma 各 monitor 的 up/down + 漏掉監控的服務
 # == 備份 ==            最後一次成功備份是多久以前
 
 scripts/tpass logs form        # 最近 100 行
@@ -440,24 +440,32 @@ scripts/tpass logs form -f     # 跟隨
 | 🟠 落後 origin/main | GitHub 有新 merge 還沒上線 | `tpass deploy <svc>` |
 | 🟢 | HEAD = origin/main | 沒事 |
 | ↺ 數字很大但穩定成長 | **正常**——每次 deploy reload 都會 +1 | 不用管 |
-| ⚠️ `<svc>` 沒有監控 | registry 標 `deployed` 但 UptimeRobot 上沒有對應 monitor | 去補一個（見下） |
-| 🔴 超過 30 小時沒備份 | cron 沒觸發 | §6.1。**目前沒有任何東西會主動告訴你這件事**——死人開關還沒接 |
+| ⚠️ `<svc>` 沒有監控 | registry 標 `deployed` 但 Kuma 上沒有對應 monitor | 去補一個（見下） |
+| 🔴 超過 30 小時沒備份 | cron 沒觸發 | §6.1。Kuma 的 push monitor 會先叫，見下 |
 
-### 線上監控與告警（UptimeRobot）
+### 線上監控與告警（自架 Uptime Kuma）
 
-免費方案，50 個 monitor、5 分鐘間隔。**帳號刻意開在學生會官方信箱**，理由同 §6.2 的
-Google 專案——個人帳號會隨畢業停用，監控跟著消失。
+**跑在哪**：一台部員自己的機器，不是 T-Pass 主機。
+部署、Cloudflare Tunnel、交接條件全部在 **`monitoring/HANDOFF.md`**，那份是給那位部員看的。
+設計與取捨在 `docs/specs/2026-08-28-uptime-kuma-design.md`。
+
+🔴 **監控絕對不能跟被監控的東西住同一台機器。** 主機自己死掉時，只有跑在主機外的東西
+叫得出來——這是 `scripts/lib/monitor.mjs` 檔頭那句話的全部意義。要換機器時**確認過，不要假設**。
 
 **有哪些 monitor**（清單真相＝註冊表：每個 `deployed:true` 的服務一個 HTTP monitor）：
 
 | monitor | 網址 | 正常回什麼 |
 | --- | --- | --- |
-| auth / portal / form / msg / appeals / buddy | `https://<subdomain>.tschoolsu.org/` | auth 回 **200**，其餘五個回 **307**（未登入導去 auth） |
-| 根網域 | `https://tschoolsu.org/` | **301** → `portal.tschoolsu.org`（2026-08-27 起，見下）。monitor 已從 Paused 開回來。 |
+| auth / portal / form / msg / appeals / notes / buddy | `https://<subdomain>.tschoolsu.org/` | auth 回 **200**，其餘六個回 **307**（未登入導去 auth） |
+| 根網域 | `https://tschoolsu.org/` | **301** → `portal.tschoolsu.org` |
+| `backup-heartbeat` | push monitor（沒有網址） | 見下面的死人開關 |
 
-> ⚠️ **消費端回 307 不是錯誤。** 建 monitor 時務必把「視為 up 的狀態碼」放寬到
-> **2xx + 3xx**（等價於 `deploy.sh` 健康檢查用的「HTTP < 500」）。只收 200 的話
-> 五個服務會全天誤報 down，然後沒人再看告警——假警報比沒有告警更糟。
+`node monitoring/seed.mjs --dry-run` 會從註冊表印出「現在該有哪些 monitor」，
+手動補建時照著那份打就不會漏掉欄位。
+
+> ⚠️ **消費端回 307 不是錯誤。** 建 monitor 時務必把「接受的狀態碼」放寬到
+> **`200-399`**（等價於 `deploy.sh` 健康檢查用的「HTTP < 500」）。只收 200 的話
+> 六個服務會全天誤報 down，然後沒人再看告警——假警報比沒有告警更糟。
 
 > 🕳 **根網域那條踩過一次坑**：Cloudflare 的 redirect rule 目標主機名寫成跟來源一樣
 > （少了 `portal.`），apex 轉給自己 → `ERR_TOO_MANY_REDIRECTS`。而且**瀏覽器測不出來**
@@ -466,92 +474,103 @@ Google 專案——個人帳號會隨畢業停用，監控跟著消失。
 > 現在是一條規則吃兩個主機名：`http.host in {"tschoolsu.org" "www.tschoolsu.org"}`
 > → 靜態 `https://portal.tschoolsu.org`，301。
 
-**告警送到哪**（兩個管道，七個 monitor 都掛上，`threshold:0` 一偵測到就發）：
+**告警送到哪**：Discord webhook，維運頻道，**與備份失敗告警同一條**。
 
-| 管道 | 去哪 |
-| --- | --- |
-| Email | `studentcouncil@tschool.tp.edu.tw`（註冊時自動建） |
-| Discord webhook | 維運頻道，**與備份失敗告警同一條** |
+> ⚠️ **還沒接手機推播。** Discord 是「要有人去看」才成立的管道，半夜不會把人叫醒。
 
-> ⚠️ **還沒接手機推播。** 這兩個都是「要有人去看」才成立的管道，半夜不會把人叫醒。
-> 要補：手機裝 UptimeRobot App、用同一個帳號登入，它會自動變成第三個通知管道。
+**公開狀態頁**：`https://status.tschoolsu.org`（Cloudflare Tunnel 從部員的機器出來）。
+樣式的主本是 `monitoring/status-page.css`（進 git），改完要**手動貼進** Kuma 後台的
+Custom CSS 欄位才會生效——Kuma 沒辦法從檔案讀 CSS。
 
-> 🔑 API key 雖然是唯讀的，**讀得出 Discord webhook 的完整網址**——當機密保管，
-> 只放 gitignored 的 `deploy/host.env`，不要貼進 issue / PR / 任何被追蹤的檔案。
+> 🔴 Kuma 的管理後台跟狀態頁**同一個 port**，開 tunnel 等於把登入頁一起放上公網。
+> 管理路徑要用 Cloudflare Access 擋住，做法見 `monitoring/HANDOFF.md` §2.2。
 
-**多久會發現**：免費方案 5 分鐘間隔，加上判定要連續失敗，實際落在 **5～7 分鐘**。
-2026-08-26 實測 `pm2 stop buddy`：6.6 分鐘後告警，復原後 4.5 分鐘發恢復通知。
-**這是方案的硬限制，看到「6 分鐘才叫」不要以為是設定錯了。**
-
-**`tpass status` 怎麼看得到監控**：填本機 `deploy/host.env` 的 `UPTIMEROBOT_API_KEY`（唯讀 key，
-gitignored，**不放主機**——這是本機工具用的）。沒填就整段安靜跳過，不是錯誤。
-它做一件 UptimeRobot 網頁做不到的事：**拿 monitor 清單對照註冊表，抓出「`deployed:true`
+**`tpass status` 怎麼看得到監控**：填本機 `deploy/host.env` 的 `KUMA_BASE_URL` 與
+`KUMA_API_KEY`（Kuma 後台 → Settings → API Keys 建的唯讀 key，gitignored，
+**不放主機**——這是本機工具用的）。沒填就整段安靜跳過，不是錯誤。
+它做一件 Kuma 網頁做不到的事：**拿 monitor 清單對照註冊表，抓出「`deployed:true`
 卻沒有人幫它開監控」的服務。**
 
-**新服務上線時要記得加一個 monitor**——沒有自動化。`tpass status` 的 `⚠️ 沒有監控` 是補救，
-預防在 `docs/handbook/04-registry-sop.md` 翻 `deployed:true` 前的檢查表。
+**新服務上線時要記得加一個 monitor**。實務上就一行——在跑 Kuma 那台機器上
+`node monitoring/seed.mjs --notify`（冪等，只補缺的，順便加進狀態頁；
+`--notify` 漏掉的話新 monitor 不會有告警管道，見 `monitoring/HANDOFF.md` §6）。
 
-### 備份的死人開關（🚧 尚未啟用，程式碼已就緒）
+但那支腳本只是省事的工具，**不是可以依賴的機制**，而且**刻意不做全自動**：
+Kuma 沒有官方寫入 API，唯一的路是它未公開的 socket.io 內部協定（上游明講會 breaking）。
+所以方向是反過來的——**真相永遠在註冊表，Kuma 只是被檢查有沒有跟上**。
+`tpass status` 的 `⚠️ 沒有監控` 就是那個檢查；預防在
+`docs/handbook/04-registry-sop.md` 翻 `deployed:true` 前的檢查表。
 
-**這個洞還開著**：備份的第三種失敗是腳本**從未執行**（crontab 被清、cron 服務死了、
-主機重開後沒起來）。那種時候 Discord 不會響，因為根本沒有東西發得出告警；
-`tpass status` 的時間戳停住不動，但那要人主動去看。**沉默看起來跟成功一模一樣。**
+### 備份的死人開關
+
+備份的第三種失敗是腳本**從未執行**（crontab 被清、cron 服務死了、主機重開後沒起來）。
+那種時候 Discord 不會響，因為根本沒有東西發得出告警；`tpass status` 的時間戳停住不動，
+但那要人主動去看。**沉默看起來跟成功一模一樣。**
 
 死人開關等的是「好消息沒來」，不是壞消息：備份成功時去 ping 一個外部服務，
-超過週期沒收到就由**那個外部服務**告警。UptimeRobot 免費方案沒有 heartbeat
-（官網行銷頁寫「全方案都有」，產品裡是 Solo 以上——**以產品裡看到的為準**）。
+超過週期沒收到就由**那個外部服務**告警。
 
-**要啟用的話，`deploy/backup.sh` 那段已經寫好了**，只差一串 URL：
-
-1. https://healthchecks.io 註冊（免費 20 個 check，用學生會官方信箱）
-2. 建一個 check：Name `tpass-backup`、Period **1 day**、Grace **1 hour**
-   （cron 是每日 04:15 → 約 25 小時沒 ping 就叫）
-3. 複製它的 ping URL，**一條 ssh** 寫進主機：
+Kuma 內建 push monitor，就是這個東西——`backup-heartbeat`，心跳期限 25 小時
+（cron 是每日 04:15，留一小時寬限）。`deploy/backup.sh` 一行都不用改，
+只要主機的 `~/tpass/deploy/backup.env` 填上它的 push URL：
 
 ```bash
-scripts/ssh.sh "printf 'BACKUP_HEARTBEAT_URL=%s\n' 'https://hc-ping.com/<uuid>' >> ~/tpass/deploy/backup.env"
-tpass backup run          # 驗證：healthchecks 那頁應該立刻變綠
+scripts/ssh.sh "printf 'BACKUP_HEARTBEAT_URL=%s\n' 'https://status.tschoolsu.org/api/push/<token>' >> ~/tpass/deploy/backup.env"
+tpass backup run          # 驗證：Kuma 上那個 monitor 應該立刻變綠
 ```
 
 沒填就完全不動作，不會報錯。**`--dry-run` 也不會 ping**——那段在 dry-run 的 `exit 0`
 之後，假的心跳比沒有心跳更糟。
 
-### 🚧 規劃中：改用自架的 Uptime Kuma（2026-08-27，部員提案）
+### 監控的監控（GitHub Actions 看門狗）
 
-**狀態：尚未執行。** 部員提議改用 [Uptime Kuma](https://github.com/louislam/uptime-kuma)
-（開源自架監控），由**部員自己的主機**部署，部長先拉下來設定、部員負責上線。
-下面是決定要不要換、以及換的時候必須守住的東西。
+Kuma 補掉了備份的死人開關，但它自己也需要一個——**它跑在一台個人機器上**。
 
-**它解決什麼**（真的有價值，不是換個好看的）：
+`.github/workflows/kuma-watchdog.yml` 每 10 分鐘檢查兩件事：
 
-- **內建 push monitor＝死人開關**。上面那個「🚧 尚未啟用」的洞它直接補掉，
-  而且不必再多開一個 healthchecks.io 帳號。`backup.sh` 的 `BACKUP_HEARTBEAT_URL`
-  照樣能用——**填 Kuma 的 push URL 就好，腳本一行都不用改**。
-- 檢查間隔可以短於 5 分鐘，UptimeRobot 免費方案「5～7 分鐘才叫」的硬限制消失。
-- monitor 數量無上限，新服務上線不必省著開。
-- 不必把 Discord webhook 交給第三方（UptimeRobot 的唯讀 API key 讀得出 webhook 全文）。
-  Kuma 支援 Discord 通知，可以送同一條維運頻道。
+| 檢查 | 怎麼判斷 | label |
+| --- | --- | --- |
+| ① Kuma 還活著嗎 | 打公開心跳 API；沒回應、或最新心跳超過 20 分鐘沒更新就算掛了 | `kuma-down` |
+| ② 已上線的服務都有監控嗎 | 拿 `services.json` 的 `deployed:true` 對照狀態頁上的 monitor 名稱 | `monitor-missing` |
 
-**換的時候不可以違反的兩條**：
+任一項出事就發 Discord 並開一顆 issue，恢復時自己關掉並發恢復通知。
+**那兩顆 issue 是狀態，不要手動關**——沒有它們，出事的整段期間每 10 分鐘轟一次頻道，
+兩天後沒人會再看。Kuma 自己掛掉時②整個跳過，不會在一個真警報上疊一個假警報。
 
-1. 🔴 **監控絕對不能跟被監控的東西住同一台機器。** 主機自己死掉時，只有跑在主機外的
-   東西叫得出來——這是 `scripts/lib/monitor.mjs` 檔頭那句話的全部意義。
-   部員那台是另一台機器就沒問題，但**要確認過，不要假設**。
-2. 🔴 **不要急著關掉 UptimeRobot。** 至少並行到 Kuma 連續叫對幾次為止。
-   並行期間 Kuma 死掉還有 UptimeRobot 兜著；直接切過去的話，
-   **監控自己死掉是靜默的**——沒有東西會來告訴你「你的監控不見了」。
+**②不需要任何 secret**：Kuma 的狀態頁 API 是公開的、`tpass-registry` 是 public repo。
+所以這支 workflow 拿不到、也不需要 Kuma 的管理權——它只會讀跟叫，不會寫。
+（②是用**名稱**比對的，因為狀態頁的公開 API 不吐 URL。monitor 名稱要等於註冊表的
+`name`，改名字它就會誤報「沒有監控」。）
 
-**交接風險比 UptimeRobot 更重，要先想好**：UptimeRobot 那邊的處理是「帳號開在
-`studentcouncil@` 官方信箱，不隨個人畢業」（見上）。自架版沒有這個解——
-**機器本身屬於一個部員**。他畢業、退部、或那台主機停掉，監控就整個消失。
-換之前先講好：那台機器是誰的、帳單誰付、他離開時交給誰。這題 C5（交接重疊期）躲不掉。
+跑在 GitHub 的理由：要在部員的機器**之外**（不然一起死），而且帳號在 `tschoolsu`
+組織底下、不隨個人畢業。
 
-**工程成本（具體）**：`tpass status` 的「== 監控 ==」那段打的是 UptimeRobot v2 API
-（`scripts/lib/monitor.mjs`）。那段唯一的價值是**拿 monitor 清單對照註冊表，抓出
-「`deployed:true` 卻沒有人開監控」的服務**——換到 Kuma 要重寫成打它的 API。
-**並行期間可以先不動**：UptimeRobot 還在，那段就還準。真的關掉 UptimeRobot 那天再改，
-不要為了還沒發生的事先改。
+⚠️ **兩個會靜默失效的地方**：
 
+1. **repo 連續 60 天沒有 push，GitHub 會自動停用排程 workflow。** `tpass-ops` 平常有活動，
+   但真的靜下來時這支會無聲關掉——而它關掉時同樣沒有人會通知你。
+2. 排程實際延遲常到 10～15 分鐘。這對「監控活著沒」夠用；服務本身的秒級監控是 Kuma 的事。
+
+### 🚧 轉換狀態（2026-08-28）
+
+從 UptimeRobot 換到自架 Kuma **還沒完成**。現況：
+
+- ✅ 部長本機的 Kuma 已經調好（monitor、狀態頁樣式、push monitor）
+- ⬜ 尚未部署到部員的機器，`status.tschoolsu.org` 還不存在
+- ⬜ Discord 通知**刻意還沒勾到 monitor 上**（部長本機一關機會洗頻道），等部員機器上線才勾
+- ⬜ 主機 `backup.env` 的 `BACKUP_HEARTBEAT_URL` 還沒填
+- ⚠️ **UptimeRobot 還在跑，但 `scripts/lib/monitor.mjs` 已經改成讀 Kuma。**
+  所以在部員機器上線之前，`tpass status` 的「== 監控 ==」會顯示「未設定，跳過」。
+  想在本機先看，就把 `deploy/host.env` 的 `KUMA_BASE_URL` 指到本機那台
+  （`http://localhost:3010`）。
+
+**切換順序不可以顛倒**：Kuma 在部員機器上線 → 看門狗跑起來並確認會叫 →
+**才**刪 UptimeRobot 的 monitor。不要在部員按下 `docker compose up` 的同一天關掉。
+
+> 🕰 2026-08-27 的 ONBOARDING 寫著「不要急著關掉 UptimeRobot，至少並行到 Kuma
+> 連續叫對幾次」。**2026-08-28 部長改了這個決定**：Kuma 上線後 UptimeRobot 整個關掉，
+> 由 GitHub Actions 看門狗接手「監控的監控」這個職責。理由是看門狗的帳號在組織底下、
+> 不隨個人畢業，比 UptimeRobot 那個「開在官方信箱」的作法更穩。
 
 ---
 
@@ -606,7 +625,7 @@ pm2 start <svc>
 | --- | --- |
 | Discord webhook（`deploy/backup.env` 的 `BACKUP_DISCORD_WEBHOOK`） | 腳本跑了但失敗 |
 | `tpass status` 的「最後備份 X 小時前」，超過 30 小時標紅 | **cron 根本沒觸發**——webhook 不會響 |
-| 🚧 死人開關（`backup.env` 的 `BACKUP_HEARTBEAT_URL`）——**尚未啟用**，程式碼已就緒 | 同上，但**不必有人主動去看**。沒接之前，「cron 沒觸發」仍然只有主動跑 `tpass status` 才看得到（見 §6） |
+| 🚧 死人開關（`backup.env` 的 `BACKUP_HEARTBEAT_URL` → Kuma 的 `backup-heartbeat` push monitor）——**尚未接上**，兩邊的程式碼都已就緒 | 同上，但**不必有人主動去看**。等 Kuma 部署到部員的機器、push URL 定案後填上就生效（見 §6） |
 
 ### 設定放哪
 
