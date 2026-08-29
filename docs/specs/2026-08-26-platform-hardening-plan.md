@@ -456,7 +456,7 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
 > hex/rgb/dark:/soft shadow/圓角、手抄驗章、`groups`、cookie `Domain`、v1 遺物、硬編碼網域、
 > npm/yarn 鎖檔；消費端限定）。部員安裝方式見該 repo README。
 > **後續**：各服務 repo 放 `.claude/settings.json`（`extraKnownMarketplaces` + `enabledPlugins`），
-> 讓部員一信任資料夾就被提示安裝，還沒做。
+> 讓部員一信任資料夾就被提示安裝——2026-08-29 已鋪到 portal/auth/form/appeals/msg/vote/notes 七個 repo（meeting 本機沒 clone，未鋪）。
 
 ---
 
@@ -510,7 +510,7 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
   `aria-hidden="true"`，螢幕閱讀器使用者讀不到「你被禁止使用申訴系統」。
 - `design.md` 全文沒有任何一行提到無障礙 / 對比 / focus 樣式。
   另外 `design.md` 宣稱的 radius 衍生值（`rounded-md ~0.6rem` 等）從來沒有任何服務落地，
-  實際全用 Tailwind 預設 scale——2026-08-29 做 `tpass-ui` 時照現況封裝，沒有回頭改文件。
+  實際全用 Tailwind 預設 scale——2026-08-29 做 `tpass-ui` 時照現況封裝，`design.md` 的 radius 表已加註「未落地」（2026-08-29）。
 - 各服務 `public/` 還躺著 Next.js 樣板的 `next.svg` / `vercel.svg`；
   `tpass-portal/README.md` 還是 `create-next-app` 的原始樣板。
 
