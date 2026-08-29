@@ -15,10 +15,13 @@
 
 ### 這件事分兩階段，第一階段你一個人就做得完
 
-| 階段 | 做什麼 | 做完就有什麼 | 需要誰 |
+| 階段 | 做什麼 | 做完就有什麼 | 需要什麼權限 |
 | --- | --- | --- | --- |
-| **一**（§1、§3、§4） | 把 Kuma 跑起來、勾上告警、交回備份的 push URL | **監控真的在運作了**——服務掛掉會發 Discord | 你自己 |
-| **二**（§2） | Cloudflare Tunnel + Access，讓 `status.tschoolsu.org` 對全校開 | 公開狀態頁、部長的 `tpass status` 看得到、GitHub 看門狗盯得到 Kuma | **要部長一起**（見下） |
+| **一**（§1、§3） | 把 Kuma 跑起來、把 Discord 通知勾上 | **監控真的在運作了**——服務掛掉會發 Discord | 你的機器 + 主機（驗收要停一次 pm2） |
+| **二**（§2、§4、§5） | Cloudflare Tunnel + Access、接上備份心跳 | 公開狀態頁、備份的死人開關、`tpass status` 看得到、GitHub 看門狗盯得到 Kuma | **Cloudflare 帳號**（見下） |
+
+> §4（備份心跳）為什麼在第二階段：push URL 是 `https://status.tschoolsu.org/...` 開頭的，
+> tunnel 還沒通的話主機打不到它。
 
 **先把第一階段做完再說。** 它本身就是完整可用的東西，卡在第二階段不會讓前面白做。
 
@@ -26,13 +29,14 @@
 （GitHub 的看門狗要打得到 `status.tschoolsu.org` 才能盯 Kuma）。
 第一階段停留太久的話，等於監控存在但無人看管。
 
-### 🔴 第二階段你一個人做不完，不要硬試
+### 🔴 第二階段卡的是 Cloudflare 帳號，不是主機權限
 
 `§2` 的 `cloudflared tunnel login` 會叫你授權 **`tschoolsu.org` 這個 zone**，
-`§2.2` 要進 **Cloudflare Zero Trust** 設 Access policy。這兩件都需要學生會那個
-Cloudflare 帳號的權限，**不在你手上**。
+`§2.2` 要進 **Cloudflare Zero Trust** 設 Access policy。這兩件需要的是**學生會那個
+Cloudflare 帳號**——跟你有沒有主機 ssh 權限是兩回事，有主機也進不去 Cloudflare。
 
-所以：**約部長一起做 §2**（他登入、你在旁邊；或請他把你加進那個 Cloudflare 帳號）。
+手上沒有的話：**約部長一起做 §2**（他登入、你照著設；或請他把你加進那個 Cloudflare 帳號，
+之後你自己就能做完）。
 
 ⚠️ 不要用你自己的個人 Cloudflare 帳號登入——那樣建出來的 tunnel 沒有
 `tschoolsu.org` 這個網域，看起來成功了但 `status.tschoolsu.org` 永遠不會生效。
@@ -44,6 +48,10 @@ Cloudflare 帳號的權限，**不在你手上**。
 監控的全部價值在於「被監控的東西死掉時它還活著」。跟主機住同一台，
 主機一斷電就兩個一起消失，而且**沒有人會知道**。你自己的機器、樹莓派、
 另一台 VPS 都可以，就是不能是那台。
+
+🔴 **你有主機的權限，不代表可以裝在那裡。** 主機上跑得動、docker 也在，
+裝上去五分鐘就會動——但那樣做出來的東西在主機掛掉時會跟著消失，
+而主機掛掉正是最需要它出聲的時候。**這條紅線現在只剩這份文件在守。**
 
 **② 它要一直開著。**
 
@@ -187,8 +195,16 @@ sudo cloudflared service install    # 需要 root，這是你自己的機器所�
 
 ### 驗收①：服務掛掉會叫
 
-請部長在主機上停掉一個非關鍵服務的 pm2 程序（例如 `pm2 stop buddy`），
-**三分鐘內**你們的維運頻道應該收到告警；`pm2 start buddy` 之後收到恢復通知。
+在主機上停掉一個非關鍵服務的 pm2 程序，**三分鐘內**維運頻道應該收到告警：
+
+```bash
+pm2 stop buddy      # 挑非關鍵的，不要拿 auth 練習——它掛了六個服務一起掛
+# 等告警進來
+pm2 start buddy     # 應該收到恢復通知
+```
+
+⚠️ `buddy` 是活動限定的臨時服務，拿它試最安全。**絕對不要停 `auth`**：
+它是發證端，停掉等於全校六個服務同時登不進去。
 
 ---
 
@@ -201,15 +217,30 @@ sudo cloudflared service install    # 需要 root，這是你自己的機器所�
 **而沉默看起來跟成功一模一樣**。死人開關等的是「好消息沒來」，不是壞消息。
 
 `data/` 裡已經有一個叫 `backup-heartbeat` 的 push monitor（心跳期限 25 小時）。
-你要做的是把它的 URL 交回去：
+你要做的是把它的 URL 填進主機：
 
 1. 後台 → `backup-heartbeat` → 複製 Push URL
    （長得像 `https://status.tschoolsu.org/api/push/<token>`）
-2. 把它給部長，他在主機的 `~/tpass/deploy/backup.env` 填：
+2. 進主機，把它接在 `backup.env` 後面：
+
+   ```bash
+   printf 'BACKUP_HEARTBEAT_URL=%s\n' 'https://status.tschoolsu.org/api/push/<token>' \
+     >> ~/tpass/deploy/backup.env
    ```
-   BACKUP_HEARTBEAT_URL=https://status.tschoolsu.org/api/push/<token>
-   ```
+
    **`backup.sh` 一行都不用改**，它本來就會 ping 這個變數。
+
+3. 手動跑一次備份確認心跳有進來——Kuma 上那個 monitor 應該立刻變綠：
+
+   ```bash
+   cd ~/tpass/deploy && ./backup.sh
+   ```
+
+> ⚠️ 這一步要 §2 做完才有意義：push URL 是 `status.tschoolsu.org` 開頭的，
+> tunnel 還沒通的話主機打不到它。先做 §2 再回來。
+>
+> ⚠️ `backup.env` 是 gitignored 的機密檔（裡面還有 Discord webhook）。
+> 用 `>>` 接在後面，不要整個覆寫掉。
 
 ### 驗收②：備份沒跑會叫
 
@@ -220,8 +251,10 @@ sudo cloudflared service install    # 需要 root，這是你自己的機器所�
 
 ## 5. 讓 `tpass status` 看得到 Kuma
 
-**這一步你不用做**（而且要 §2 做完才會生效——`tpass status` 是從部長的筆電打
-`status.tschoolsu.org`，沒有 tunnel 就打不到）。 `data/` 裡已經有一把叫 `tpass-status-readonly` 的唯讀 API key
+**API key 不用你重發**（而且這一步要 §2 做完才會生效——`tpass status` 是從別人的
+筆電打 `status.tschoolsu.org`，沒有 tunnel 就打不到）。
+
+`data/` 裡已經有一把叫 `tpass-status-readonly` 的唯讀 API key
 （後台 → Settings → API Keys 看得到），部長本機也已經有它的值。
 你上線之後他只要把自己的 `deploy/host.env` 從
 
@@ -243,6 +276,10 @@ KUMA_BASE_URL=https://status.tschoolsu.org   ← 你上線之後
 
 這是新服務上線時不會漏掉監控的機制：註冊表的 PR 一合併，`tpass status` 就開始喊。
 **清單的真相永遠在註冊表，Kuma 只是被檢查有沒有跟上。**
+
+你自己也想用 `tpass status` 的話（你有主機權限就跑得動）：`cp deploy/host.env.example
+deploy/host.env`，填主機位址與帳號、再填上面那兩個 `KUMA_*`。那個檔是 gitignored 的機密，
+主機位址不得出現在任何被追蹤的檔案裡。
 
 ---
 
