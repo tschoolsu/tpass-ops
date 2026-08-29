@@ -20,7 +20,12 @@ const PG_MIN = 18;
 // crontab 的 command 由 /bin/sh 跑，`~` 展開不保證；$HOME 才是可靠的。
 // 路徑仍派生自註冊表的 server.opsRoot，不寫死（帳號名是機密，不能進被追蹤的檔案）。
 const opsRootSh = hostOpsRoot.replace(/^~\//, "$HOME/");
-const CRON_ENTRY = `15 4 * * * cd ${opsRootSh} && ./deploy/backup.sh >> $HOME/tpass-backup.log 2>&1`;
+// log 由 backup.sh 自己的 tee 寫（它還要靠那份 log 做 4000 行截斷與失敗告警的 tail -n 15）。
+// 這裡再 >> 同一個檔會讓每行寫兩次：截斷提早一半觸發、告警只剩 7 行有效內容。
+// 丟 /dev/null 而不是完全不導向，是因為 tee 仍會把同一份輸出交還給 cron → cron 每天寄信。
+// 這樣一來 exec 那行之前就掛掉（cd 失敗、腳本不見）不會留下痕跡，但那條由 heartbeat
+// 死人開關接手（沒 ping 就告警），本來就不靠 cron 的輸出。
+const CRON_ENTRY = `15 4 * * * cd ${opsRootSh} && ./deploy/backup.sh >/dev/null 2>&1`;
 
 // quiet：連 stderr 一起吞掉。用在「目錄不存在是正常情況」的探測（weekly/ 要等第一個星期天才有），
 // 否則 rclone 每次都噴三行紅字，久了就沒人看紅字了。

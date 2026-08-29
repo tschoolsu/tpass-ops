@@ -35,19 +35,22 @@ tags: T-Pass, 手冊
 `deploy.sh` 部署**任何一個服務**的第一步都是：
 
 ```bash
-git -C ~/tpass/tpass-registry pull --ff-only   # 主機只認 tpass-registry main 的最新版
-node ~/tpass/tpass-registry/validate.mjs       # 驗證失敗 → 整個部署中止
+git -C ~/tpass/tpass-registry fetch origin              # 主機只認 tpass-registry main 的最新版
+git -C ~/tpass/tpass-registry reset --hard origin/main  # 本地手改一律沖掉（沖掉前先印 diff）
+node ~/tpass/tpass-registry/validate.mjs                # 驗證失敗 → 整個部署中止
 ```
 
 所以主機上一筆沒 commit 的手改，會造成兩件事：
 
-- **驗證不過 → 所有人、所有服務都部署不了**，而且錯誤訊息指著註冊表，
-  跟你正要部署的那個服務看起來毫無關係，下一個人得先花時間查「我明明只改了 appeals」。
-- **那筆改動遲早消失**——沒 commit 的東西，下次 `pull --ff-only` 不是衝突就是被輾過去，
-  你花的力氣沒有任何人看得到。
+- **下一次部署它就沒了**——`reset --hard` 不留任何餘地，你花的力氣沒有任何人看得到
+  （只有那次部署的 log 裡留著一份 diff）。
+- **在被沖掉之前，線上跑的是沒人審過的版本**：auth 的發證白名單、portal 的卡片
+  都是 build 時從註冊表烤進去的，跟 GitHub 上那份對不起來，而且沒有任何地方會告訴你。
 
 > 真實案例（2026-08-25）：有人在主機直接加了一筆新服務、`icon` 寫成 `"class"`（不是 PascalCase），
 > 結果一個純粹只改申訴系統的部署被擋在第一步。
+> 當時第一步是 `pull --ff-only`，工作區一髒整條管道就死；2026-08-29 改成 fetch + reset --hard，
+> 死法換成「手改被沖掉」——部署不會再被別人的手改擋住。
 
 **要改就在自己電腦上改，走 PR。**
 
@@ -228,16 +231,16 @@ gh pr create --fill
 
 ## 如果主機那份已經被手改了
 
-維運部員的排除步驟：
+不必手動清理：`deploy.sh` 每次都把它 `reset --hard` 回 `origin/main`，手改一定被沖掉。
+沖掉之前那份 diff 會印在部署 log 裡（`==================== registry ====================` 底下），
+所以要救回內容就去看那次部署的輸出——GitHub Actions 的執行紀錄留著，`tpass deploy` 的話看終端機。
+
+想在部署之前先看的話：
 
 ```bash
-git -C ~/tpass/tpass-registry status --short     # 看有沒有 M services.json
-git -C ~/tpass/tpass-registry diff               # 看改了什麼
-
-# 有價值 → 先留著，回自己電腦整理成 PR
-git -C ~/tpass/tpass-registry stash push -m "手改暫存"
-# 沒價值 → 丟掉
-git -C ~/tpass/tpass-registry checkout services.json
+git -C ~/tpass/tpass-registry fetch origin
+git -C ~/tpass/tpass-registry diff origin/main    # 手改了什麼，這些都會被沖掉
 ```
 
-**在主機恢復乾淨之前，所有服務都部署不了。**
+**有價值的改動唯一的保存方式是回 GitHub 開 PR。** 在主機上編輯 `services.json` 永遠只有兩種結局：
+還沒部署時線上跑的是沒人審過、沒進 git 的版本；一旦部署就消失。

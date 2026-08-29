@@ -86,7 +86,9 @@
 **不要在任何地方另外硬編碼這些資訊**——包括不要在這份文件裡再抄一張服務表。
 現在有哪些服務、port 是多少，一律以 `cat ~/tpass/tpass-registry/services.json` 或 `scripts/tpass list` 為準。
 
-因為 auth 與 portal 是在 **build 時**把註冊表烤進去的，所以 registry merge 之後**必須重新部署這兩個**才會生效。`deploy.sh` 每次執行都會先 `git pull` 註冊表，所以主機永遠只認 `tpass-registry` main 的最新版。
+因為 auth 與 portal 是在 **build 時**把註冊表烤進去的，所以 registry merge 之後**必須重新部署這兩個**才會生效。`deploy.sh` 每次執行都會把主機那份註冊表 `reset --hard` 回 `origin/main`，所以主機永遠只認 `tpass-registry` main 的最新版。
+
+> 主機的 `~/tpass/tpass-registry` 是**唯讀快取，不是工作區**。在主機上直接編輯 `services.json` 一律無效：下次部署就被沖掉（沖掉前會把 diff 印在部署 log 裡）。要改註冊表只有一條路——回 GitHub 開 PR，見 `docs/handbook/04-registry-sop.md`。
 
 **每個服務是一個獨立的 git repo**（不是 monorepo）。頂層 `tschool/` 本身也是一個 repo（`tpass-ops`），只追蹤維運層：`scripts/`、`deploy/`、`docs/`。
 
@@ -261,17 +263,20 @@ cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身吃最新 m
 每一步失敗都會中止並印出明確錯誤：
 
 1. ops repo `git pull` 自我更新（部署腳本永遠吃最新 main）。
-2. **註冊表 `git pull` + 驗證**（`tpass-registry` 永遠吃最新 main；驗證不過就中止，不拿壞掉的清單去部署）。
-3. 服務 repo `git pull --ff-only`。
-4. **env 必填檢查**——解析該 repo `src/config/*.ts` 的 `REQUIRED`，缺 key 在 build 前就擋下並印出缺哪些。
-5. `pnpm-lock.yaml` 有變才 `pnpm install --frozen-lockfile`（沒變就跳過，快很多）。
+2. **註冊表 `fetch` + `reset --hard origin/main` + 驗證**（主機那份是唯讀快取；本地手改會先被印成 diff 再沖掉；驗證不過就中止，不拿壞掉的清單去部署）。
+3. **確認 `pm2-logrotate` 在**——不在就 `pm2 install pm2-logrotate` 並設定（單檔 10M／保留 14 份／每天 00:00 輪替／壓縮舊檔）。pm2 自己沒有輪替機制，系統 logrotate 又要 root，所以由部署流程負責讓它一直在；裝失敗只警告，不擋部署。
+4. 服務 repo `git pull --ff-only`。
+5. **env 必填檢查**——解析該 repo `src/config/*.ts` 的 `REQUIRED`，缺 key 在 build 前就擋下並印出缺哪些。
+6. `pnpm-lock.yaml` 有變才 `pnpm install --frozen-lockfile`（沒變就跳過，快很多）。
    `node_modules` 不是 pnpm 裝的（首次部署、或 npm 時代的舊裝）也會強制重裝——舊的先備份成 `node_modules.npm-bak`。
-6. `prisma generate`（有 DB 的服務；`pnpm exec`，只用鎖定版本，不會抓最新）。
-7. `pnpm build`。
-8. 套 DB schema：依註冊表的 `db.strategy` 跑 `prisma migrate deploy`（標準）或 `prisma db push`（僅限原型）。
-9. `pm2 startOrReload`——既有服務零停機 reload；註冊表新增的服務會自動首次啟動。
-10. **健康檢查**：對服務 port 打 HTTP，30 秒內拿到 <500 回應才算成功（app 起不來不會拿到假的 ✅）。
-11. 全部成功後 `pm2 save`（主機重開機後 resurrect 的就是最後一次成功部署的清單）。
+7. `prisma generate`（有 DB 的服務；`pnpm exec`，只用鎖定版本，不會抓最新）。
+8. `pnpm build`。
+9. 套 DB schema：依註冊表的 `db.strategy` 跑 `prisma migrate deploy`（標準）或 `prisma db push`（僅限原型）。
+10. `pm2 startOrReload`——既有服務零停機 reload；註冊表新增的服務會自動首次啟動。
+11. **健康檢查**：對服務 port 打 HTTP，30 秒內拿到 <500 回應才算成功（app 起不來不會拿到假的 ✅）。
+12. 全部成功後 `pm2 save`（主機重開機後 resurrect 的就是最後一次成功部署的清單）。
+
+> `pm2-logrotate` 只管跑 `pm2 logs` 的那個 pm2 daemon（部署帳號那顆）。meeting 目前掛在 **root 的 pm2** 底下，不在這條流程裡——它照 `docs/specs/2026-08-26-platform-hardening-plan.md` A3 收編進來之後才會一起被輪替。
 
 ### rollback
 
@@ -361,7 +366,7 @@ sudo -u postgres psql -c "CREATE ROLE <deploy_user> LOGIN CREATEDB CREATEROLE;"
 ~/tpass/                    ← ops repo 的 clone：只有 ops 層
 ├── deploy/{deploy.sh, ecosystem.config.js}
 ├── scripts/  docs/
-├── tpass-registry/         ← ★ 服務註冊表（public repo，並排 clone；deploy.sh 每次自己 pull）
+├── tpass-registry/         ← ★ 服務註冊表（public repo，並排 clone；deploy.sh 每次 reset --hard 回 origin/main，唯讀快取別在這裡手改）
 
 /home/service/              ← ★ 服務 repo 的家：一個服務一層，這層不放別的東西
 ├── tpass-auth/
@@ -595,6 +600,12 @@ tpass backup restore <日期> <svc>     # 還原驗證
 tpass backup install-cron             # 裝排程（冪等）
 tpass backup setup                    # 一次性：主機裝 rclone + 搬 remote 設定
 ```
+
+> crontab 的內容是 `scripts/lib/backup.mjs` 的 `CRON_ENTRY`，但**已經裝上去的那條不會自己更新**。
+> 改了 `CRON_ENTRY` 就要重跑一次 `tpass backup install-cron`（會濾掉舊的同名 entry 再寫回）。
+> log 一律由 `backup.sh` 自己 `tee` 進 `~/tpass-backup.log`，cron 那條只負責把重複的那份丟掉——
+> **不要在 crontab 裡再 `>> ~/tpass-backup.log`**，每行會寫兩次，連帶讓 4000 行自我截斷提早一半觸發、
+> 失敗告警引用的 `tail -n 15` 只剩 7 行有效內容。
 
 ### 怎麼真的還原一個資料庫
 

@@ -28,10 +28,21 @@ if [ ! -d "$REG_DIR/.git" ]; then
   exit 1
 fi
 
-# 註冊表永遠吃 main 最新版：加服務 / 翻 deployed 只要 merge 進 tpass-registry，
-# 不必再改 ops、portal、auth 任何一行程式碼。
+# 主機這份 tpass-registry 是 origin/main 的唯讀快取，不是工作區：
+# 要改註冊表就去 GitHub 開 PR，在主機上手改一律無效，下次部署一定被沖掉。
+# 所以是 fetch + reset --hard，不是 pull --ff-only —— pull 遇到髒工作區會失敗，
+# 整條管道從第一步就死；而在它死之前，線上發證白名單跑的是那份沒進 git 的手改版。
+# reset 讓狀態只剩一種：main 是什麼，主機就是什麼。
+# 加服務 / 翻 deployed 只要 merge 進 tpass-registry，不必改 ops、portal、auth 任何一行。
 echo "==================== registry ===================="
-git -C "$REG_DIR" pull --ff-only
+git -C "$REG_DIR" fetch --quiet origin
+# 沖掉之前先把漂移印出來：手改的內容本身可能有價值（例：某人在主機上翻了 deployed
+# 卻沒開 PR），無聲抹掉就再也查不出是誰改了什麼。多這幾行換得可追查，划算。
+if ! git -C "$REG_DIR" diff --quiet origin/main --; then
+  echo "⚠️  主機副本與 origin/main 不一致，以下本地改動即將被沖掉（要保留就回 GitHub 開 PR）："
+  git -C "$REG_DIR" --no-pager diff origin/main -- | sed 's/^/   /'
+fi
+git -C "$REG_DIR" reset --hard origin/main
 node "$REG_DIR/validate.mjs"
 
 [ -f "$REG" ] || { echo "❌ 找不到 $REG" >&2; exit 1; }
@@ -230,6 +241,29 @@ let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
   health_check "$s" "$(svc_port "$s")"
   echo "   ✅ $s 部署完成"
 }
+
+# pm2 的 log 沒有任何輪替：~/.pm2/logs 只會單向長大，而系統的 logrotate 要 root。
+# pm2-logrotate 是 pm2 自己的模組機制（內部用 npm 裝進 ~/.pm2/modules，不是本 repo 的依賴，
+# 與「一律 pnpm」無關），裝一次就常駐。放在部署流程裡而不是寫進文件：主機重灌、換部署帳號、
+# pm2 被清掉之後，下一次部署自動補回來，不必有人記得。
+# 裝失敗不擋部署——沒有輪替是慢性問題，不該讓服務上不了線。
+ensure_logrotate() {
+  pm2 describe pm2-logrotate >/dev/null 2>&1 && return 0
+  echo "==================== pm2-logrotate ===================="
+  echo "   未安裝 → pm2 install pm2-logrotate"
+  if ! pm2 install pm2-logrotate; then
+    echo "⚠️  pm2-logrotate 安裝失敗，本次略過（下次部署會再試）" >&2
+    return 0
+  fi
+  # 單檔 10M：出事時 tail 得動，也還放得進一次 pm2 logs。
+  # 保留 14 份：涵蓋兩週，比「上週三開始怪怪的」這種回報週期長一點。
+  pm2 set pm2-logrotate:max_size 10M
+  pm2 set pm2-logrotate:retain 14
+  pm2 set pm2-logrotate:compress true
+  pm2 set pm2-logrotate:rotateInterval '0 0 * * *'
+  echo "   ✅ 單檔 10M ／ 保留 14 份 ／ 每天 00:00 輪替 ／ 舊檔壓縮"
+}
+ensure_logrotate
 
 target="${1:-all}"
 if [ "$target" = "all" ]; then
