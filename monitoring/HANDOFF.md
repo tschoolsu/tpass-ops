@@ -13,15 +13,15 @@
 
 ## 0. 開始之前
 
-### 這件事分兩階段，第一階段你一個人就做得完
+### 這件事分兩階段（是依賴順序，不是權限問題——權限你都有）
 
-| 階段 | 做什麼 | 做完就有什麼 | 需要什麼權限 |
-| --- | --- | --- | --- |
-| **一**（§1、§3） | 把 Kuma 跑起來、把 Discord 通知勾上 | **監控真的在運作了**——服務掛掉會發 Discord | 你的機器 + 主機（驗收要停一次 pm2） |
-| **二**（§2、§4、§5） | Cloudflare Tunnel + Access、接上備份心跳 | 公開狀態頁、備份的死人開關、`tpass status` 看得到、GitHub 看門狗盯得到 Kuma | **Cloudflare 帳號**（見下） |
+| 階段 | 做什麼 | 做完就有什麼 |
+| --- | --- | --- |
+| **一**（§1、§3） | 把 Kuma 跑起來、把 Discord 通知勾上 | **監控真的在運作了**——服務掛掉會發 Discord |
+| **二**（§2、§4、§5） | Cloudflare Tunnel + Access、接上備份心跳 | 公開狀態頁、備份的死人開關、`tpass status` 看得到、GitHub 看門狗盯得到 Kuma |
 
-> §4（備份心跳）為什麼在第二階段：push URL 是 `https://status.tschoolsu.org/...` 開頭的，
-> tunnel 還沒通的話主機打不到它。
+> 為什麼 §4（備份心跳）不能提前：push URL 是 `https://status.tschoolsu.org/...` 開頭的，
+> tunnel 還沒通的話主機打不到它。§2 沒做完，§4 填下去也不會動。
 
 **先把第一階段做完再說。** 它本身就是完整可用的東西，卡在第二階段不會讓前面白做。
 
@@ -29,17 +29,13 @@
 （GitHub 的看門狗要打得到 `status.tschoolsu.org` 才能盯 Kuma）。
 第一階段停留太久的話，等於監控存在但無人看管。
 
-### 🔴 第二階段卡的是 Cloudflare 帳號，不是主機權限
+### ⚠️ §2 一定要用學生會的 Cloudflare 帳號
 
-`§2` 的 `cloudflared tunnel login` 會叫你授權 **`tschoolsu.org` 這個 zone**，
-`§2.2` 要進 **Cloudflare Zero Trust** 設 Access policy。這兩件需要的是**學生會那個
-Cloudflare 帳號**——跟你有沒有主機 ssh 權限是兩回事，有主機也進不去 Cloudflare。
+`cloudflared tunnel login` 會開瀏覽器叫你選要授權的 zone。**選 `tschoolsu.org`，
+確認你登入的是學生會那個帳號**，不是你自己的個人帳號。
 
-手上沒有的話：**約部長一起做 §2**（他登入、你照著設；或請他把你加進那個 Cloudflare 帳號，
-之後你自己就能做完）。
-
-⚠️ 不要用你自己的個人 Cloudflare 帳號登入——那樣建出來的 tunnel 沒有
-`tschoolsu.org` 這個網域，看起來成功了但 `status.tschoolsu.org` 永遠不會生效。
+用錯帳號的話那個 zone 根本不會出現在清單裡；就算硬建了一個 tunnel，
+`status.tschoolsu.org` 也永遠不會生效——而且畫面上看起來每一步都成功了。
 
 ### 機器要符合兩個條件
 
@@ -130,8 +126,7 @@ docker compose logs -f     # 看到 "Listening on 3001" 就好了，Ctrl-C 離�
 
 ## 2. 讓全校看得到：`status.tschoolsu.org`
 
-> 🔴 **這一整節要部長一起做**（見 §0）。`cloudflared tunnel login` 與 Zero Trust
-> 都需要學生會那個 Cloudflare 帳號的權限。約個時間、他登入，你照著下面做。
+> ⚠️ 開始前確認你登入的是**學生會的 Cloudflare 帳號**，不是個人帳號（見 §0）。
 
 你家的 IP 不該直接曝露到公網，所以走 Cloudflare Tunnel（免費，也不用開 port）。
 
@@ -374,15 +369,23 @@ Kuma 只是被檢查有沒有跟上**。`seed.mjs` 也是走那條協定，所�
 - `status.tschoolsu.org` 變成一個對全校壞掉的頁面
 - 備份的死人開關跟著沒了——備份哪天靜靜停掉，不會有人發現
 
-所以在你按下 `docker compose up` 的那天就要把下面三格填掉，**不要留到以後**：
+**而且你手上的東西不只那台機器**：Kuma 的管理帳號、cloudflared 的 tunnel 憑證
+（`~/.cloudflared/<tunnel-id>.json`，那是唯一一把，弄丟就得重建 tunnel 與 DNS）、
+Cloudflare 帳號、主機 ssh。你一個人做得完整件事，代價就是你一個人也帶得走整件事。
+
+所以在你按下 `docker compose up` 的那天就要把下面填掉，**不要留到以後**：
 
 | 問題 | 答案 |
 | --- | --- |
 | 這台機器是誰的？（型號 / 放在哪 / 誰有實體存取） | |
 | 電費、網路、網域的費用誰付？ | |
+| tunnel 憑證檔備份在哪？（除了這台機器以外） | |
+| Kuma 管理帳密除了你，還有誰有？ | |
 | 你離開時交給誰？交接要做哪些事？ | |
 
-填完把這份 PR 出來，讓它進 git。這是 C5（交接重疊期）的一部分，躲不掉。
+填完把這份 PR 出來，讓它進 git（**答案裡不要寫主機位址或任何密碼**，
+這個 repo 是公開的——寫「在學生會的密碼管理器裡」就夠了）。
+這是 C5（交接重疊期）的一部分，躲不掉。
 
 ---
 
