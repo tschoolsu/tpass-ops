@@ -11,9 +11,35 @@
 
 ---
 
-## 0. 開始之前，先確認兩件事
+## 0. 開始之前
 
-**① 這台機器不可以是 T-Pass 主機。**
+### 這件事分兩階段，第一階段你一個人就做得完
+
+| 階段 | 做什麼 | 做完就有什麼 | 需要誰 |
+| --- | --- | --- | --- |
+| **一**（§1、§3、§4） | 把 Kuma 跑起來、勾上告警、交回備份的 push URL | **監控真的在運作了**——服務掛掉會發 Discord | 你自己 |
+| **二**（§2） | Cloudflare Tunnel + Access，讓 `status.tschoolsu.org` 對全校開 | 公開狀態頁、部長的 `tpass status` 看得到、GitHub 看門狗盯得到 Kuma | **要部長一起**（見下） |
+
+**先把第一階段做完再說。** 它本身就是完整可用的東西，卡在第二階段不會讓前面白做。
+
+⚠️ 但第二階段不是可有可無的：**沒有它，「Kuma 自己掛掉」這件事沒有任何人會知道**
+（GitHub 的看門狗要打得到 `status.tschoolsu.org` 才能盯 Kuma）。
+第一階段停留太久的話，等於監控存在但無人看管。
+
+### 🔴 第二階段你一個人做不完，不要硬試
+
+`§2` 的 `cloudflared tunnel login` 會叫你授權 **`tschoolsu.org` 這個 zone**，
+`§2.2` 要進 **Cloudflare Zero Trust** 設 Access policy。這兩件都需要學生會那個
+Cloudflare 帳號的權限，**不在你手上**。
+
+所以：**約部長一起做 §2**（他登入、你在旁邊；或請他把你加進那個 Cloudflare 帳號）。
+
+⚠️ 不要用你自己的個人 Cloudflare 帳號登入——那樣建出來的 tunnel 沒有
+`tschoolsu.org` 這個網域，看起來成功了但 `status.tschoolsu.org` 永遠不會生效。
+
+### 機器要符合兩個條件
+
+**① 不可以是 T-Pass 主機。**
 
 監控的全部價值在於「被監控的東西死掉時它還活著」。跟主機住同一台，
 主機一斷電就兩個一起消失，而且**沒有人會知道**。你自己的機器、樹莓派、
@@ -24,6 +50,27 @@
 筆電闔上就睡著的機器不適合。要嘛是常開的桌機／小主機，要嘛是 VPS。
 會關機的機器會讓 Discord 每天誤報，兩週後所有人都學會忽略那個頻道——
 那比沒有監控更糟。
+
+### 部長要給你三樣東西
+
+| 東西 | 用在哪 | 怎麼給 |
+| --- | --- | --- |
+| `tpass-kuma-data.tar.gz`（約 135 KB） | §1 解開成 `data/` | **密碼管理器的安全檔案分享**或私訊 |
+| Kuma 的管理帳號與密碼 | §1 登入後台 | 同上 |
+| Discord 維運頻道的存取 | 收告警 | 邀請你進頻道 |
+
+🔴 **那包裡有 Discord webhook 明文與管理帳號的密碼 hash。**
+不要丟進 Google Drive 公開連結、不要貼在群組、不要寄 email、不要 commit。
+拿到之後也不要留在下載資料夾裡到處備份。
+
+### 機器上要先裝的
+
+| 需要 | 給誰用 | 怎麼裝 |
+| --- | --- | --- |
+| **Docker** | §1 跑 Kuma | macOS：<https://docs.docker.com/desktop/> ；Linux：<https://docs.docker.com/engine/install/> |
+| **git** | §1 clone | macOS 裝了 Xcode command line tools 就有；Linux `apt install git` |
+| **Node.js** | §6 新服務上線時跑 `seed.mjs` | 用 brew / apt 裝；**第一次部署用不到，之後才需要** |
+| **cloudflared** | §2 對外公開 | §2.1 有指令 |
 
 ---
 
@@ -74,6 +121,9 @@ docker compose logs -f     # 看到 "Listening on 3001" 就好了，Ctrl-C 離�
 ---
 
 ## 2. 讓全校看得到：`status.tschoolsu.org`
+
+> 🔴 **這一整節要部長一起做**（見 §0）。`cloudflared tunnel login` 與 Zero Trust
+> 都需要學生會那個 Cloudflare 帳號的權限。約個時間、他登入，你照著下面做。
 
 你家的 IP 不該直接曝露到公網，所以走 Cloudflare Tunnel（免費，也不用開 port）。
 
@@ -170,7 +220,8 @@ sudo cloudflared service install    # 需要 root，這是你自己的機器所�
 
 ## 5. 讓 `tpass status` 看得到 Kuma
 
-**這一步你不用做。** `data/` 裡已經有一把叫 `tpass-status-readonly` 的唯讀 API key
+**這一步你不用做**（而且要 §2 做完才會生效——`tpass status` 是從部長的筆電打
+`status.tschoolsu.org`，沒有 tunnel 就打不到）。 `data/` 裡已經有一把叫 `tpass-status-readonly` 的唯讀 API key
 （後台 → Settings → API Keys 看得到），部長本機也已經有它的值。
 你上線之後他只要把自己的 `deploy/host.env` 從
 
