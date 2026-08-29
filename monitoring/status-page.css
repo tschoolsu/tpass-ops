@@ -1,0 +1,382 @@
+/* ============================================================================
+ * T-Pass 狀態頁樣式 — 貼進 Kuma 的 Status Page → Custom CSS 欄位
+ *
+ * 風格真相 = tpass-portal/docs/design.md（Playful Tech / Neobrutalism，嚴格 light-only）。
+ * 這份是那份設計系統在 Kuma 上的翻譯，改樣式前先讀它，不要在這裡自創色票。
+ *
+ * 為什麼滿篇 !important：Kuma 是 Vue scoped CSS，選擇器長成 `.item[data-v-d323db95]`
+ * （specificity 0,2,0），純 class 蓋不過去。而 data-v 雜湊每次 Kuma 改版都會變，
+ * 寫死它反而更脆。所以一律用 !important，不要試圖比它更精巧。
+ *
+ * 心跳條在 2.x 是 canvas 畫的，顏色不是 CSS 規則而是 JS 從 documentElement 讀的變數：
+ *   up=--bs-primary  down=--bs-danger  pending=--bs-warning
+ *   maintenance=--maintenance  empty=--beat-empty-color
+ * 所以那五個變數必須定在 :root，搬到別的選擇器底下就失效。
+ * ========================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;700&display=swap");
+
+:root {
+  /* --- design.md 的 color tokens（一律 OKLCH，禁 hex/rgb）--- */
+  --tp-background: oklch(0.99 0.002 250);
+  --tp-foreground: oklch(0.21 0.01 264);
+  --tp-card: oklch(1 0 0);
+  --tp-primary: oklch(0.62 0.16 150);
+  --tp-accent: oklch(0.6 0.16 250);
+  --tp-muted: oklch(0.96 0.004 250);
+  --tp-muted-foreground: oklch(0.5 0.012 264);
+  --tp-destructive: oklch(0.58 0.2 25);
+  --tp-warning: oklch(0.75 0.15 70);
+
+  --tp-font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --tp-font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Neobrutalism：border 色 = foreground，shadow 是 hard offset、永遠不模糊 */
+  --tp-shadow-sm: 2px 2px 0 0 var(--tp-foreground);
+  --tp-shadow-md: 3px 3px 0 0 var(--tp-foreground);
+  --tp-shadow-lg: 4px 4px 0 0 var(--tp-foreground);
+  --tp-shadow-lg-hover: 7px 7px 0 0 var(--tp-foreground);
+
+  /* --- 心跳條 canvas 的顏色來源（見檔頭）--- */
+  --bs-primary: oklch(0.62 0.16 150);
+  --bs-danger: oklch(0.58 0.2 25);
+  --bs-warning: oklch(0.75 0.15 70);
+  --maintenance: oklch(0.6 0.16 250);
+  --beat-empty-color: oklch(0.94 0.005 250);
+
+  /* Bootstrap 連結色，讓它跟 accent 一致 */
+  --bs-link-color: var(--tp-accent);
+  --bs-link-hover-color: var(--tp-accent);
+}
+
+/* ---------------------------------------------------------------------------
+ * light-only：Kuma 的 theme 設 light 之後理論上不會有 .dark，但使用者的
+ * prefers-color-scheme 或未來改版可能把它加回來。這裡直接讓 .dark 無效化，
+ * 而不是去追每一條 dark 規則。
+ * ------------------------------------------------------------------------ */
+html,
+body,
+.dark {
+  color-scheme: light !important;
+  background-color: var(--tp-background) !important;
+  color: var(--tp-foreground) !important;
+}
+
+body,
+#app {
+  font-family: var(--tp-font-sans) !important;
+  font-weight: 500;
+}
+
+.dark .shadow-box:not(.alert),
+.dark .table-shadow-box tbody .shadow-box {
+  background-color: var(--tp-card) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 卡片：Kuma 的 .shadow-box 原本是 `0 15px 70px` 的 soft shadow，
+ * design.md 明文禁止。換成 border-2 + hard offset。
+ * ------------------------------------------------------------------------ */
+.shadow-box {
+  background-color: var(--tp-card) !important;
+  border: 2px solid var(--tp-foreground) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: var(--tp-shadow-lg) !important;
+  padding: 1.25rem !important;
+}
+
+/* 全域保險絲：任何殘留的模糊陰影都清掉（design.md 禁 soft shadow）。
+   上面的 .shadow-box 規則在後面，不會被這條蓋掉。 */
+.shadow-box,
+.card,
+.dropdown-menu,
+.modal-content {
+  filter: none !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 標題區（Kuma 預設的 logo 在檔尾被隱藏了，識別交給導覽列）
+ * ------------------------------------------------------------------------ */
+h1,
+.title {
+  font-family: var(--tp-font-sans) !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+  color: var(--tp-foreground) !important;
+}
+
+.description,
+.description p {
+  color: var(--tp-muted-foreground) !important;
+  font-weight: 500 !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 總體狀態：原本只是一行變色的粗體字，改成有邊框的 badge，
+ * 讓「現在到底好不好」在手機上一眼看得到。
+ * ------------------------------------------------------------------------ */
+.overall-status {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  font-family: var(--tp-font-mono) !important;
+  font-weight: 700 !important;
+  font-size: 1.05rem !important;
+  letter-spacing: -0.01em !important;
+  padding: 0.5rem 1rem !important;
+  border: 2px solid var(--tp-foreground) !important;
+  border-radius: 0.75rem !important;
+  box-shadow: var(--tp-shadow-md) !important;
+  background-color: var(--tp-card) !important;
+  color: var(--tp-foreground) !important;
+}
+
+.overall-status .ok {
+  color: oklch(0.45 0.13 150) !important;
+}
+
+.overall-status .warning {
+  color: oklch(0.5 0.15 45) !important;
+}
+
+.overall-status .danger {
+  color: oklch(0.5 0.17 18) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 服務清單
+ * ------------------------------------------------------------------------ */
+.group-title,
+.group-title span {
+  font-family: var(--tp-font-mono) !important;
+  font-weight: 700 !important;
+  color: var(--tp-foreground) !important;
+}
+
+/* 服務清單的外層容器不要再包一層卡片。卡中卡在 design.md 的語彙裡太重
+   （兩層 border-2 + 兩層硬陰影），大廳也是把卡片直接放在背景上。
+   邊框與陰影留給每一列服務。specificity 0,2,0 蓋得過上面的 .shadow-box。 */
+.shadow-box.monitor-list {
+  border: none !important;
+  box-shadow: none !important;
+  background-color: transparent !important;
+  padding: 0 !important;
+}
+
+.monitor-list .item {
+  border: 2px solid var(--tp-foreground) !important;
+  border-radius: 0.85rem !important;
+  background-color: var(--tp-card) !important;
+  box-shadow: var(--tp-shadow-sm) !important;
+  padding: 0.85rem 1rem !important;
+  margin-bottom: 0.75rem !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+.monitor-list .item:hover {
+  background-color: var(--tp-card) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: var(--tp-shadow-md) !important;
+}
+
+.item-name {
+  /* badge 有 border + 硬陰影，Kuma 預設的 5px 內距貼太近 */
+  padding-left: 0.625rem !important;
+  font-weight: 700 !important;
+  color: var(--tp-foreground) !important;
+}
+
+/* 心跳條下方的「x% / 時間範圍」小字 */
+.word {
+  font-family: var(--tp-font-mono) !important;
+  font-weight: 500 !important;
+  color: var(--tp-muted-foreground) !important;
+}
+
+/* uptime 百分比等 badge：design.md 規定 badge 一律 mono + bold */
+.badge {
+  font-family: var(--tp-font-mono) !important;
+  font-weight: 700 !important;
+  border: 2px solid var(--tp-foreground) !important;
+  border-radius: 0.5rem !important;
+  box-shadow: var(--tp-shadow-sm) !important;
+  padding: 0.25rem 0.5rem !important;
+}
+
+.badge.bg-primary {
+  background-color: oklch(0.88 0.11 150) !important;
+  color: oklch(0.45 0.13 150) !important;
+}
+
+.badge.bg-danger {
+  background-color: oklch(0.89 0.09 15) !important;
+  color: oklch(0.5 0.17 18) !important;
+}
+
+.badge.bg-warning {
+  background-color: oklch(0.88 0.11 60) !important;
+  color: oklch(0.5 0.15 45) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 事件公告（incident）：Kuma 用 Bootstrap 的 alert 配色，
+ * 換成 tone 色板，並補上邊框與硬陰影。
+ * ------------------------------------------------------------------------ */
+.incident {
+  border: 2px solid var(--tp-foreground) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: var(--tp-shadow-lg) !important;
+  font-weight: 500 !important;
+}
+
+.incident.bg-info {
+  background-color: oklch(0.96 0.04 250) !important;
+  color: oklch(0.46 0.15 250) !important;
+}
+
+.incident.bg-warning {
+  background-color: oklch(0.96 0.05 60) !important;
+  color: oklch(0.5 0.15 45) !important;
+}
+
+.incident.bg-danger {
+  background-color: oklch(0.96 0.04 15) !important;
+  color: oklch(0.5 0.17 18) !important;
+}
+
+.incident.bg-primary,
+.incident.bg-light {
+  background-color: oklch(0.96 0.05 150) !important;
+  color: oklch(0.45 0.13 150) !important;
+}
+
+.incident .title {
+  font-weight: 800 !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 維護中
+ * ------------------------------------------------------------------------ */
+.bg-maintenance {
+  background-color: oklch(0.96 0.04 250) !important;
+  color: oklch(0.46 0.15 250) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 頁尾
+ * ------------------------------------------------------------------------ */
+footer,
+.footer-text {
+  font-family: var(--tp-font-mono) !important;
+  font-size: 0.8rem !important;
+  color: var(--tp-muted-foreground) !important;
+}
+
+footer a,
+.description a,
+.incident a {
+  color: var(--tp-accent) !important;
+  font-weight: 700 !important;
+  text-decoration-thickness: 2px !important;
+  text-underline-offset: 2px !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * T-Pass 導覽列
+ *
+ * Kuma 沒有「自訂 HTML」這種欄位，所以這條 bar 的 markup 是塞在**狀態頁的
+ * description** 裡的——那個欄位走 `marked()` + `DOMPurify.sanitize()`
+ * （StatusPage.vue:845），`<div>` / `<a>` / `class` 都留得住，只有 script 被擋。
+ * 要改 markup 去 `monitoring/seed.mjs` 的 NAV_HTML，不是改這裡。
+ *
+ * description 在 DOM 裡排在標題**後面**，所以這裡用 position:fixed 把它拉到頁面
+ * 最上緣，再給 body 一段 padding-top 補位。樣式照抄 tpass-portal 的 Header.tsx
+ * （h-16 / max-w-6xl / backdrop-blur / border-b-2）。
+ * ------------------------------------------------------------------------ */
+.tp-nav {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 50;
+  height: 4rem;
+  background-color: oklch(0.99 0.002 250 / 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 2px solid oklch(0.21 0.01 264 / 0.2);
+}
+
+.tp-nav-inner {
+  max-width: 72rem;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  /* 各模組的 Header 是「首頁按鈕 + 服務名」靠左成一組，右邊放登入態。
+     狀態頁是公開頁沒有登入態，所以右邊空著，這裡就不用 space-between。 */
+  justify-content: flex-start;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+/* 「首頁」按鈕，規格照抄各模組的 PortalLink.tsx（小元件：2px 硬陰影、hover 上移） */
+.tp-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+  padding: 0.25rem 0.625rem;
+  border: 2px solid var(--tp-foreground) !important;
+  border-radius: 0.5rem;
+  background-color: var(--tp-card);
+  box-shadow: var(--tp-shadow-sm);
+  font-family: var(--tp-font-mono) !important;
+  font-size: 0.6875rem;
+  font-weight: 700 !important;
+  color: var(--tp-foreground) !important;
+  text-decoration: none !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tp-home:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--tp-shadow-md);
+  color: var(--tp-foreground) !important;
+}
+
+.tp-home-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+@media (min-width: 640px) {
+  .tp-nav-inner {
+    padding: 0 1.5rem;
+  }
+}
+
+.tp-logo {
+  font-family: var(--tp-font-mono) !important;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--tp-foreground);
+}
+
+/* design.md：Logo 的連字符是 primary 綠的單字元 */
+.tp-dash {
+  color: var(--tp-primary);
+}
+
+/* 補掉被 fixed 導覽列蓋住的高度 */
+body {
+  padding-top: 4rem !important;
+}
+
+/* 導覽列已經是這一頁的識別。Kuma 預設的圖示與 h1 標題留著會變成講三次同一件事
+   （導覽列的 T-Status、h1、再加下面的「所有系統正常運作」），
+   所以兩個都收掉——各模組的做法也是名稱只出現在導覽列一次。 */
+.logo-wrapper,
+img.logo,
+h1.title-flex {
+  display: none !important;
+}

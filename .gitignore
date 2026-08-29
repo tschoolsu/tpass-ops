@@ -16,6 +16,11 @@
 !/scripts/
 !/deploy/
 !/docs/
+!/monitoring/
+
+# --- monitoring/data/ = Kuma 的 SQLite（含 Discord webhook 明文與 admin 密碼 hash）。
+# tpass-ops 是 public repo，這包只能私下傳給部員，永遠不進 git。---
+/monitoring/data/
 
 # --- deploy/ 內的機密不追蹤（其餘 deploy/ 檔照追蹤）---
 # 注意：下面 `.env.*` 那條保險絲比對的是「以 .env. 開頭」的檔名，配不到 backup.env，必須明列。

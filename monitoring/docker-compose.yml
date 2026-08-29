@@ -1,0 +1,25 @@
+# T-Pass 監控 — Uptime Kuma
+#
+# 🔴 這個 compose 不該跑在 T-Pass 主機上。主機自己死掉時，只有跑在主機外的東西叫得出來。
+#    正式位置是部員自己的機器；部長本機只是「調設定 → 打包 data/ 轉交」的暫時場地。
+#
+# 版本釘死到 digest：轉交是整個 data/ 目錄複製過去（Kuma 2.x 已移除 JSON 匯出/匯入），
+# 而 SQLite schema 不能降級——部員的版本不可以比部長本機的舊。
+# tag 理論上可以被上游重推，digest 不會，所以兩個都寫（digest 說了算）。
+# 這個 digest 是 **OCI image index**（多架構），不是單一架構的 manifest——
+# 部員在 amd64 Linux 上跑會自己拿到對的那份，不必改。
+# 不要改成 :latest / :2 / :1。要升級就兩邊一起升，先升部員那台，並同時換 digest。
+#
+# port：預設 3001 是 Kuma 的慣例，部員直接用。
+# 部長本機的 3001 被 tpass-portal 佔著，本機起的時候要避開：
+#   KUMA_PORT=3010 docker compose up -d
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:2.5.3@sha256:3e24e96c89efff0e3a4b0698cbdd36c15ad3022371db57166e5588853002ee5c
+    container_name: tpass-uptime-kuma
+    restart: unless-stopped
+    ports:
+      - "${KUMA_PORT:-3001}:3001"
+    volumes:
+      - ./data:/app/data

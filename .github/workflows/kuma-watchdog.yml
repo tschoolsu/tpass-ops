@@ -1,0 +1,203 @@
+# 監控的監控。管兩件事：
+#
+#   ① Kuma 還活著嗎
+#   ② 註冊表上 deployed:true 的服務，狀態頁上都有嗎
+#
+# 為什麼需要①：服務的監控是 Uptime Kuma，但 Kuma 跑在一位部員自己的機器上。
+# 他斷網、機器重開沒起來、docker 掛掉——**沒有任何東西會來告訴你監控不見了**，
+# 而沉默跟「一切正常」長得一模一樣。這支 workflow 就是那個「好消息沒來就叫」的死人開關。
+#
+# 為什麼需要②：新服務上線後要有人去 Kuma 加一個 monitor（HANDOFF.md §6），那一步沒有自動化。
+# 忘了加的話，那個服務掛掉不會有人知道。②不幫你加，但會在十分鐘內告訴你忘了。
+#
+# 為什麼跑在 GitHub 而不是別的地方：它必須在部員的機器**之外**（不然一起死），
+# 而且帳號要在 tschoolsu 組織底下、不隨個人畢業。
+#
+# 🔑 這支**不需要任何 secret 就能做完檢查**：Kuma 的狀態頁 API 是公開的、
+#    tpass-registry 是 public repo。只有發 Discord 那一步用到 webhook。
+#    所以它拿不到、也不需要 Kuma 的管理權——它只會讀跟叫，不會寫。
+#
+# ⚠️ 兩個會靜默失效的地方，接手的人要知道：
+#   1. **repo 連續 60 天沒有 push，GitHub 會自動停用排程 workflow**。tpass-ops 平常有活動，
+#      但真的靜下來時這支會無聲關掉——而它關掉時同樣沒有人會通知你。
+#   2. 排程實際延遲常到 10～15 分鐘。這對「監控活著沒」夠用；服務本身的秒級監控是 Kuma 的事。
+#
+# 狀態各用一顆 GitHub Issue 存（label: kuma-down / monitor-missing）。沒有它的話，
+# 出事的整段期間每 10 分鐘就會轟一次 Discord，兩天後沒人會再看那個頻道——告警的價值就沒了。
+
+name: kuma-watchdog
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: # 手動按一次可驗證它真的會叫
+
+concurrency:
+  group: kuma-watchdog
+  cancel-in-progress: false
+
+env:
+  # 公開網域與 public repo，都不是機密，所以寫在這裡而不是 Secrets（Secrets 只放 webhook）。
+  KUMA_BASE: https://status.tschoolsu.org
+  KUMA_SLUG: tpass
+  REGISTRY_URL: https://raw.githubusercontent.com/tschoolsu/tpass-registry/main/services.json
+  # Kuma 每 60 秒檢查一次。超過這個分鐘數還沒有新的心跳，就算它「還在回應但已經停擺」。
+  # 抓 20 分鐘是因為 Actions 排程本身就會延遲 10～15 分鐘，抓太短會天天誤報。
+  STALE_MINUTES: 20
+
+permissions:
+  issues: write # 開/關那兩顆狀態 issue
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: ① Kuma 還活著嗎
+        id: probe
+        run: |
+          set -uo pipefail   # 刻意不用 -e：探測失敗是預期結果之一，要繼續往下走報告它
+
+          url="${KUMA_BASE}/api/status-page/heartbeat/${KUMA_SLUG}"
+          body=$(curl -fsSL --max-time 20 "$url" 2>/dev/null) || {
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Kuma 沒有回應（$url 連不上或非 2xx）" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          # 回應是 {"heartbeatList":{"<monitorId>":[{...,"time":"..."}]},"uptimeList":{...}}
+          # 只要有一個 monitor 的最新心跳夠新，就代表 Kuma 的排程還在動。
+          # 只取前 19 個字元（YYYY-MM-DD HH:MM:SS）再補 Z：Kuma 的 time 帶小數秒，
+          # fromdateiso8601 吃不下小數秒，而未來若改帶 +08:00 這個切法也還是對的。
+          newest=$(jq -r '
+            [.heartbeatList // {} | .[] | .[-1]? | .time? | select(. != null)]
+            | map(.[0:19] | sub(" "; "T") + "Z" | fromdateiso8601)
+            | max // empty
+          ' <<<"$body" 2>/dev/null)
+
+          if [ -z "$newest" ]; then
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Kuma 有回應，但心跳資料是空的（status page 上沒有任何 monitor？）" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          age=$(( ($(date -u +%s) - newest) / 60 ))
+          if [ "$age" -gt "$STALE_MINUTES" ]; then
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Kuma 還在回應，但最新心跳已經是 ${age} 分鐘前——排程停擺了" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+            echo "reason=最新心跳 ${age} 分鐘前" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: ② 註冊表上的服務，狀態頁都有嗎
+        id: coverage
+        env:
+          HEALTHY: ${{ steps.probe.outputs.healthy }}
+        run: |
+          set -uo pipefail
+          : > /tmp/missing.txt
+
+          # Kuma 自己就掛了的話沒辦法判斷覆蓋率，硬算會把七個服務全報成「缺監控」，
+          # 在一個真警報上面疊一個假警報。這種時候什麼都不要說。
+          if [ "$HEALTHY" != "true" ]; then
+            echo "checked=false" >> "$GITHUB_OUTPUT"
+            echo "Kuma 沒回應，跳過覆蓋率檢查"
+            exit 0
+          fi
+
+          page=$(curl -fsSL --max-time 20 "${KUMA_BASE}/api/status-page/${KUMA_SLUG}") || {
+            echo "checked=false" >> "$GITHUB_OUTPUT"; echo "狀態頁設定讀不到，跳過"; exit 0; }
+          reg=$(curl -fsSL --max-time 20 "$REGISTRY_URL") || {
+            echo "checked=false" >> "$GITHUB_OUTPUT"; echo "註冊表讀不到，跳過"; exit 0; }
+
+          # 比對的是**名稱**——狀態頁的公開 API 不吐 URL，只有 monitor 名稱。
+          # 所以 monitor 名稱必須等於註冊表的 `name`，那是文件裡寫死的慣例
+          # （HANDOFF.md §6 / docs/handbook/04-registry-sop.md）。改名字這裡就會誤報，
+          # 誤報的內容是「去看一下」，成本低；漏報的內容是「沒人知道服務掛了」，成本高。
+          jq -r --argjson page "$page" '
+            [.services[] | select(.deployed) | .name] as $want
+            | ($page.publicGroupList // [] | map(.monitorList // []) | flatten | map(.name)) as $have
+            | $want - $have | .[]
+          ' <<<"$reg" > /tmp/missing.txt 2>/dev/null
+
+          echo "checked=true" >> "$GITHUB_OUTPUT"
+          if [ -s /tmp/missing.txt ]; then
+            echo "covered=false" >> "$GITHUB_OUTPUT"
+            echo "以下服務在註冊表是 deployed:true，但狀態頁上沒有："
+            sed 's/^/  - /' /tmp/missing.txt
+          else
+            echo "covered=true" >> "$GITHUB_OUTPUT"
+            echo "✓ 所有已上線的服務都有監控"
+          fi
+
+      # 狀態機：issue 開著 = 目前記錄為「壞的」。只在狀態**改變**時通知，不重複轟。
+      - name: 依狀態變化決定要不要通知
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_WEBHOOK: ${{ secrets.OPS_DISCORD_WEBHOOK }}
+          HEALTHY: ${{ steps.probe.outputs.healthy }}
+          REASON: ${{ steps.probe.outputs.reason }}
+          COV_CHECKED: ${{ steps.coverage.outputs.checked }}
+          COVERED: ${{ steps.coverage.outputs.covered }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          notify() {   # $1=標題 $2=內文
+            [ -n "${DISCORD_WEBHOOK:-}" ] || { echo "沒設 OPS_DISCORD_WEBHOOK，跳過通知"; return 0; }
+            jq -n --arg c "**$1**"$'\n'"$2" '{content:$c}' \
+              | curl -fsS -X POST -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK" >/dev/null
+          }
+
+          # $1=label $2=ok(true/false) $3=issue 標題 $4=issue 內文
+          # $5=告警標題 $6=告警內文 $7=恢復標題 $8=恢復內文
+          sync_issue() {
+            local label="$1" ok="$2" title="$3" body="$4"
+            local alert="$5" alert_body="$6" recovered="$7" recovered_body="$8"
+            local open_issue
+            open_issue=$(gh issue list --repo "$REPO" --label "$label" --state open \
+                          --limit 1 --json number --jq '.[0].number // empty')
+
+            if [ "$ok" = "true" ]; then
+              if [ -n "$open_issue" ]; then
+                gh issue close "$open_issue" --repo "$REPO" --comment "已恢復。$recovered_body"
+                notify "$recovered" "$recovered_body"
+              fi
+              return 0
+            fi
+
+            if [ -n "$open_issue" ]; then
+              echo "已經有開著的 issue #$open_issue（$label），不重複通知"
+              return 0
+            fi
+            gh label create "$label" --repo "$REPO" --color d73a4a 2>/dev/null || true
+            gh issue create --repo "$REPO" --label "$label" --title "$title" --body "$body"
+            notify "$alert" "$alert_body"
+          }
+
+          # ① Kuma 活著沒
+          sync_issue "kuma-down" "$HEALTHY" \
+            "Uptime Kuma 沒有回應" \
+            "$(printf '%s\n\n%s\n\n%s\n' "$REASON" \
+               "監控跑在部員的機器上（見 monitoring/HANDOFF.md）。先確認那台機器與它的網路，再看 cloudflared 與 docker。" \
+               "這顆 issue 是 watchdog 的狀態，恢復時它會自己關掉——不要手動關。")" \
+            "🔴 Kuma 監控沒有回應" \
+            "$(printf '%s\n%s' "$REASON" "服務本身的狀態現在是沒人在看的。")" \
+            "✅ Kuma 監控恢復" "$REASON"
+
+          # ② 監控覆蓋率。Kuma 掛掉時 COV_CHECKED=false，這一段整個跳過——
+          #    不要在一個真警報上面疊一個假警報。
+          if [ "${COV_CHECKED:-false}" = "true" ]; then
+            missing=$(sed 's/^/- /' /tmp/missing.txt)
+            sync_issue "monitor-missing" "${COVERED:-true}" \
+              "有已上線的服務沒有監控" \
+              "$(printf '%s\n\n%s\n\n%s\n\n%s\n' \
+                 "下面這些服務在 tpass-registry 是 \`deployed: true\`，但 status.tschoolsu.org 上沒有對應的 monitor：" \
+                 "$missing" \
+                 "怎麼補：在跑 Kuma 那台機器上 \`node monitoring/seed.mjs --notify\`（見 monitoring/HANDOFF.md §6）。" \
+                 "另一個可能：monitor 有建但名稱跟註冊表的 \`name\` 不一致——這裡是用名稱比對的。")" \
+              "⚠️ 有服務上線了卻沒有監控" \
+              "$(printf '%s\n%s\n%s' "$missing" "它們掛掉不會有人收到通知。" "補法：node monitoring/seed.mjs --notify")" \
+              "✅ 監控覆蓋率恢復" "所有已上線的服務都有監控了。"
+          fi
