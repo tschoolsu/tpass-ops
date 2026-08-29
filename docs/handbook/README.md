@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | `01-new-service.md` | T-Pass 服務串接指南 | 要做一個新服務的人 | 從開 repo 到上線的完整動手流程，自給自足 |
 | `02-sso-contract.md` | T-Pass SSO 串接合約（契約 v2） | 正在寫串接程式碼的人 | 驗章四鐵則、JWT payload、錯誤碼、可直接抄的範本 |
-| `03-design-system.md` | T-Pass Design System | 寫 UI 的人 | 顏色、字體、Neobrutalism 鐵則、禁止事項 |
+| `03-design-system.md` | T-Pass Design System | 寫 UI 的人 | 顏色、字體、Neobrutalism 鐵則、禁止事項；元件套件見 `tpass-ui` |
 | `04-registry-sop.md` | T-Pass 服務註冊表 SOP | 所有人 | 要改服務註冊表只有一條路：開 PR。含主機紅線 |
 
 每份檔案開頭都有 HackMD 的 YAML frontmatter（`title` / `tags`），**貼過去時整份貼**，

@@ -11,6 +11,14 @@ tags: T-Pass, 手冊
 
 風格定位：**Playful Tech / Bright Pop Tech**。嚴格 light-only，白底、重邊框、糖果色調，帶有技術手冊與時刻表的俐落感。
 
+> **元件在 [`tpass-ui`](https://github.com/tschoolsu/tpass-ui) 套件，不要手刻。**
+> `pnpm add github:tschoolsu/tpass-ui#v1.0.0`，`globals.css` 加：
+> ```css
+> @import "tpass-ui/theme.css";
+> @source "../../node_modules/tpass-ui/dist";
+> ```
+> 下面的 token / 元件模式是給讀套件原始碼、或改設計時對照用的，不是要你照著手刻一份。
+
 ---
 
 ## Color Tokens
@@ -103,6 +111,8 @@ active:translate-y-0
 | `rounded-xl`   | ~1.4rem | icon 框、按鈕 |
 | `rounded-2xl`  | ~1.8rem | 卡片 |
 | `rounded-full` | 9999px  | 頭像圓形 |
+
+> 這些衍生值目前沒有任何服務落地，實際全用 Tailwind 預設 scale；`tpass-ui/theme.css` 照現況，不 override。
 
 ---
 

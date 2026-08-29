@@ -33,6 +33,8 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-vote/` | 選舉系統（T-Vote） | `https://vote.lvh.me:3006` | 開發中，尚未上線（註冊表 `deployed:false`）。設計決策見 memory。 |
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
 | `tpass-auth-js/` | **驗章共用套件** | — | **public repo**，並排 clone（非必要——各服務是用 git URL 安裝它，不是相對路徑）。消費端的驗章四鐵則、callback/logout route handler 都在這裡，有 27 個測試守著。**2026-08-27 起六個消費端都吃它，不要再在服務裡手抄 `lib/tpass-auth.ts`。** |
+| `tpass-ui/` | **UI 元件共用套件** | — | **public repo**（v1.0.0），並排 clone（非必要——git URL 安裝：`pnpm add github:tschoolsu/tpass-ui#v1.0.0`）。匯出 `cn/Button/Input/Textarea/Select/Card/Badge/Label/Switch/ConfirmDialog` + `tpass-ui/theme.css`。消費端 `globals.css` 改 `@import "tailwindcss"; @import "tpass-ui/theme.css"; @source "../../node_modules/tpass-ui/dist";`（Tailwind v4 預設不掃 node_modules，`@source` 必加）。`dist/` 進 git、CI 守同步，跟 `tpass-auth-js` 同一套模式。**2026-08-29 起 form/appeals/msg/vote 四個消費端吃它，不要再在服務裡手刻 `src/components/ui/primitives.tsx`。** |
+| `tpass-skills/` | **給部員的 Claude Code plugin** | — | **public repo**，同時是 marketplace。三個 skill：`tpass-design`、`tpass-auth`、`tpass-service`，加 `scripts/check.sh`（grep 檢查 hex/rgb/dark:/soft shadow/圓角、手抄驗章、groups、cookie Domain、v1 遺物、硬編碼網域、npm/yarn 鎖檔；消費端限定）。部員安裝：`/plugin marketplace add tschoolsu/tpass-skills` → `/plugin install tpass@tpass-skills`。細節見該 repo README。 |
 | `tpass-registry/` | **服務註冊表（唯一真相）** | — | **public repo**，並排 clone。id/目錄/子網域/port/DB 策略/大廳卡片全在 `services.json`；auth 白名單、portal 卡片、pm2、deploy 全部從它派生，**不得另行硬編碼**。 |
 | `scripts/tpass` | **唯一 ops 入口（CLI）** | — | dev/check/build/db/deploy/status/logs/new/ui；不帶參數＝互動選單。 |
 | `monitoring/` | **監控**（Uptime Kuma 自架） | `https://status.tschoolsu.org` | docker-compose + 狀態頁 CSS + 給部員的部署手冊。**Kuma 本體跑在部員自己的機器上，不是 T-Pass 主機**（監控跟被監控物同機＝主機一死兩個一起消失）。`data/` 是 gitignored 的 SQLite，靠私下傳檔轉交。 |
@@ -42,9 +44,10 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 > ⚠️ 這代表 **GitHub Actions 的執行紀錄也是公開的**——部署 log 裡不得出現主機位址
 > （機密一律走 GitHub Secrets，值會被自動遮成 `***`）。
 > `tpass-registry`、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、
-> `tpass-appeals`、`tpass-notes`、`tpass-meeting` 都在 **`tschoolsu` 組織**底下且是 **public**。
+> `tpass-appeals`、`tpass-notes`、`tpass-meeting`、`tpass-ui`、`tpass-skills`、`tpass-vote` 都在
+> **`tschoolsu` 組織**底下且是 **public**。
 > `tpass-buddy` 在 **`YC815`** 個人帳號底下（臨時服務，未轉移）。
-> `tpass-vote` 與 `tpass-directory`（封存）**尚未有 GitHub repo**，只存在於本機。
+> `tpass-directory`（封存）**尚未有 GitHub repo**，只存在於本機。
 > ⚠️ `tpass-notes` 與 `tpass-meeting` 是直接在主機上開發出來的，**本機預設沒有 clone**；
 > 主機上各服務的 `origin` 多半還指著轉移前的舊擁有者（靠 GitHub 轉址在動）。
 > **本機**：全部並排在同一層（`tpass-registry` 與各服務同層），auth / portal 靠
@@ -79,6 +82,8 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | **安全審查發現與狀態** | `docs/SECURITY-REVIEW.md` | 🟢 權威 |
 | **權限怎麼管**（role/restriction、ban/warning、panel 操作） | auth 的 `/admin` panel（實際管理介面）＋ `tpass-auth/INTEGRATION.md` §3（claim 契約與生效時間） | 🟢 權威 |
 | **UI 風格 / design system** | `tpass-portal/docs/design.md` | 🟢 權威 |
+| **UI 元件怎麼用**（不要手刻 primitives） | `tpass-ui` repo README | 🟢 權威 |
+| **給部員的 agent 規則**（skill / check.sh） | `tpass-skills` repo README | 🟢 權威 |
 | **設定怎麼讀**（全 env 驅動） | 各 repo `src/config/*.ts`（REQUIRED 陣列＝env 必填真相） | 🟢 權威 |
 | **產品願景 / 背景需求** | `tpass-portal/docs/PRD.md` | 🟢 v1.1.0 已對齊實作 |
 
@@ -92,6 +97,7 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 - **Neobrutalism 鐵則**：所有互動元素 = `border-2 border-foreground` + **hard offset shadow**
   （`shadow-[Xpx_Xpx_0_0_...]`），hover 上移、shadow 變大。**禁止 soft shadow（`shadow-md` 等）。**
 - **禁止**：dark mode / `dark:` 前綴、hex/rgb、無邊框卡片、`shadow-sm/md`、圓角超過 `rounded-2xl`。
+- **元件一律 import 自 `tpass-ui`**（`Button`/`Input`/`Card`/`ConfirmDialog`…），不要手刻 primitives。
 
 ---
 
@@ -134,6 +140,7 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
 - ❌ 消費端不要 import / 複製 auth 的私鑰、`arctic`、OAuth callback。**只需要公鑰。**
 - ❌ 不要在前端驗章、不要把 token 塞 `localStorage`、不要關掉 `algorithms: ['EdDSA']` 鎖定。
 - ❌ 不要在服務裡復活一份手抄的 `src/lib/tpass-auth.ts`（2026-08-27 六份全部刪掉了）。驗章要改就去 `tpass-auth-js` 改，那裡有測試；服務端只留 `config/*.ts` 那一行綁定。
+- ❌ 不要在服務裡復活 `src/components/ui/primitives.tsx`（2026-08-29 四個消費端全刪，portal/auth 本來就沒有）。元件要改就去 `tpass-ui` 改，服務端只 import。
 - ❌ 不要把網域 / issuer / audience / 服務清單寫死——讀 `config/*`（env）與 `tpass-registry`。
 - ❌ **不要在 portal 或 auth 裡硬編碼服務清單**（曾經有過：portal 的卡片陣列 + `<SVC>_URL` env、
   auth 的 `AUTH_SERVICE_IDS`，兩者都已於 2026-07-31 廢除）。大廳卡片與發證白名單一律派生自

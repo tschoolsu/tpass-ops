@@ -355,6 +355,9 @@ C 層每一項都比 A/B 大，**做之前先跟部長確認優先順序**，不
 把 Neobrutalism 的 Button / Card / Badge 做成套件，比八份設計文件的人肉遵從度高一個數量級。
 **但這是獨立任務，不要跟 C1 綁在一起做。**
 
+> 📌 **2026-08-29 完成**：`tschoolsu/tpass-ui`（v1.0.0）。四個消費端（form/appeals/msg/vote）
+> 已切換、刪掉手抄的 `src/components/ui/primitives.tsx`；portal/auth 只換 `theme.css`。
+
 ---
 
 #### C2 — 寫一份「凌晨兩點版」runbook
@@ -448,6 +451,13 @@ Google SRE 的實測數字是：事先寫好的操作手冊相較臨場硬幹，
 C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性（模型寫出來的東西長什麼樣）。
 兩件事互補，可以各自獨立做。
 
+> 📌 **2026-08-29 完成 v1.0.0**：`tschoolsu/tpass-skills`（同時是 Claude Code plugin marketplace），
+> 三個 skill（`tpass-design` / `tpass-auth` / `tpass-service`）+ `scripts/check.sh`（grep 檢查
+> hex/rgb/dark:/soft shadow/圓角、手抄驗章、`groups`、cookie `Domain`、v1 遺物、硬編碼網域、
+> npm/yarn 鎖檔；消費端限定）。部員安裝方式見該 repo README。
+> **後續**：各服務 repo 放 `.claude/settings.json`（`extraKnownMarketplaces` + `enabledPlugins`），
+> 讓部員一信任資料夾就被提示安裝，還沒做。
+
 ---
 
 ## 3. 明確不要做的事
@@ -499,6 +509,8 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
 - `tpass-portal/src/components/ServiceCard.tsx:44,60` 對未登入與被停權的卡片整張加
   `aria-hidden="true"`，螢幕閱讀器使用者讀不到「你被禁止使用申訴系統」。
 - `design.md` 全文沒有任何一行提到無障礙 / 對比 / focus 樣式。
+  另外 `design.md` 宣稱的 radius 衍生值（`rounded-md ~0.6rem` 等）從來沒有任何服務落地，
+  實際全用 Tailwind 預設 scale——2026-08-29 做 `tpass-ui` 時照現況封裝，沒有回頭改文件。
 - 各服務 `public/` 還躺著 Next.js 樣板的 `next.svg` / `vercel.svg`；
   `tpass-portal/README.md` 還是 `create-next-app` 的原始樣板。
 
@@ -816,7 +828,9 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
 - [ ] C3 上線檢查表
 - [ ] C4 知識流動制度
 - [ ] C5 交接重疊期
-- [ ] C6 數位部專用 agent skill（**非體檢發現**，部長 2026-08-27 提出）
+- [x] C6 數位部專用 agent skill（**非體檢發現**，部長 2026-08-27 提出；2026-08-29 完成
+      v1.0.0，`tschoolsu/tpass-skills`——見 C6 內文）；同批完成 C1 提到的 design system
+      套件版：`tschoolsu/tpass-ui`（v1.0.0）
 - [x] T-Form 新回覆通知 webhook（**非體檢發現**，部長 2026-08-28 凌晨提出，同日完成）
       需求原話：「表單裡面可以有一個頁面可以登記 webhook，可以先註冊好數個，
       每個表單可以選擇是否要用 webhook 通知——有些會有大量答案的就可以不要開，

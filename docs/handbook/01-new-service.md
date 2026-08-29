@@ -218,6 +218,21 @@ gh repo create tschoolsu/tpass-lost --private --source=. --push
 > repo 名稱請與註冊表那筆的 `dir` 一致（`tpass-lost`）——主機的部署腳本是照 `dir` 找目錄的。
 > 沒有 `tschoolsu` 組織的建立權限就開在自己帳號下，再請維運轉移。
 
+裝 UI 元件（不要手刻 `Button`/`Card` 這類 primitives，詳見《T-Pass Design System》）：
+
+```bash
+pnpm add github:tschoolsu/tpass-ui#v1.0.0
+```
+
+`src/app/globals.css` 開頭的 `@import "tailwindcss";` 後面加兩行（Tailwind v4 預設不掃
+`node_modules`，`@source` 必加，否則元件的 class 會被 tree-shake 掉）：
+
+```css
+@import "tailwindcss";
+@import "tpass-ui/theme.css";
+@source "../../node_modules/tpass-ui/dist";
+```
+
 repo 結構如下：
 
 ```
@@ -232,6 +247,10 @@ tpass-lost/
 ```
 
 標星號的三個檔案即登入串接的全部內容，詳見〈整合登入〉。
+
+> [!TIP]
+> 用 Claude Code 開發的話裝 `tpass-skills` plugin（驗章 / design system / 註冊表規則會自動提醒）：
+> `/plugin marketplace add tschoolsu/tpass-skills` → `/plugin install tpass@tpass-skills`
 
 ## 整合登入
 
