@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ROOT, devUrl, prodUrl, services } from "./registry.mjs";
+import { ROOT, devUrl, isExternal, prodUrl, services } from "./registry.mjs";
 import { envGetJson, setEnv, unsetEnv } from "./env.mjs";
 
 const LIB_DIR = dirname(fileURLToPath(import.meta.url));
@@ -94,9 +94,11 @@ export async function ui() {
           db: s.db ? `${s.db.name} (${s.db.strategy})` : null,
           enabled: s.enabled,
           deployed: s.deployed,
+          external: isExternal(s),
           devUrl: devUrl(s),
           prodUrl: prodUrl(s),
-          devUp: s.enabled ? await probe(s.port) : false,
+          // external 沒有本機 port 可探（例如 GitHub Pages 上的純前端）；probe(null) 會直接噴例外。
+          devUp: s.enabled && !isExternal(s) ? await probe(s.port) : false,
         }))
       );
       return json(res, 200, { root: ROOT, services: list });

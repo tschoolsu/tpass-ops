@@ -63,7 +63,9 @@ export TPASS_REGISTRY_PATH="$REG"
 svc_dir()      { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.dir:''" "$1"; }
 svc_port()     { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);s?s.port:''" "$1"; }
 svc_strategy() { node -p "const s=require('$REG').services.find(x=>x.id===process.argv[1]);(s&&s.db&&s.db.strategy)||''" "$1"; }
-deployed_ids() { node -p "require('$REG').services.filter(s=>s.deployed).map(s=>s.id).join(' ')"; }
+# hosting:"external"（純前端、託管在 GitHub Pages 等）沒有行程可跑，deployed:true 對它
+# 只代表「大廳卡片顯示」——不歸這支腳本管，排除掉。
+deployed_ids() { node -p "require('$REG').services.filter(s=>s.deployed&&(s.hosting||'host')!=='external').map(s=>s.id).join(' ')"; }
 
 # 部署後健康檢查：pm2 reload 回 ✓ 只代表行程換好了，不代表 app 活著
 # （啟動時炸掉會被 pm2 無限重啟，表面仍是 online）。對 app 的 port 打 HTTP，
@@ -140,6 +142,12 @@ deploy_one() {
   rel="$(svc_dir "$s")"
   if [ -z "$rel" ]; then
     echo "❌ services.json 裡沒有服務「$s」" >&2
+    exit 2
+  fi
+  hosting="$(node -p "const x=require('$REG').services.find(v=>v.id===process.argv[1]);(x&&x.hosting)||'host'" "$s")"
+  if [ "$hosting" = "external" ]; then
+    echo "❌ 「$s」是 hosting:external（不歸主機/pm2 管，例如純前端託管在 GitHub Pages），" >&2
+    echo "   這支腳本部署不了它——它有自己的 CI（該 repo 的 .github/workflows/deploy.yml）。" >&2
     exit 2
   fi
   dir="$SVC_ROOT/$rel"

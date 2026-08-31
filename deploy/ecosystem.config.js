@@ -25,7 +25,9 @@ const SERVICES_ROOT = expand(server && server.servicesRoot) || ROOT;
 
 module.exports = {
   apps: services
-    .filter((s) => s.deployed)
+    // hosting:"external"（例如純前端、託管在 GitHub Pages 的服務）沒有 Next 行程可跑，
+    // deployed:true 對它只代表「大廳卡片顯示」——不歸 pm2 管，跳過。
+    .filter((s) => s.deployed && (s.hosting ?? "host") !== "external")
     .map((s) => ({
       name: s.id,
       cwd: path.join(SERVICES_ROOT, s.dir),

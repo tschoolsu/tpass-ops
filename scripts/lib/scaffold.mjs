@@ -5,7 +5,7 @@
 // auth 的發證白名單與 portal 的大廳卡片都是從那個 repo 的 main 派生的。
 import { readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { REGISTRY_DIR, REGISTRY_FILE, hostServicesRoot, registry, services } from "./registry.mjs";
+import { REGISTRY_DIR, REGISTRY_FILE, hostServicesRoot, isExternal, registry, services } from "./registry.mjs";
 import { run } from "./sh.mjs";
 import { setup } from "./build.mjs";
 
@@ -23,7 +23,8 @@ export async function newService(idArg) {
   const name = await ask("顯示名稱", `T-${id[0].toUpperCase()}${id.slice(1)}`);
   const dir = await ask("repo 目錄名", `tpass-${id}`);
   const subdomain = await ask("子網域", id);
-  const maxPort = Math.max(...services.map((s) => s.port));
+  // external（例如純前端、託管在 GitHub Pages）沒有 port，不參與「下一個可用 port」的計算。
+  const maxPort = Math.max(...services.filter((s) => !isExternal(s)).map((s) => s.port));
   const port = Number(await ask("port", maxPort + 1));
   const hasDb = (await ask("需要 PostgreSQL？(y/N)", "N")).toLowerCase() === "y";
 

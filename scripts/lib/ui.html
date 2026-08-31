@@ -125,16 +125,17 @@ async function loadRegistry() {
         <span class="badge ${s.devUp ? "up" : "downb"}">${s.enabled ? (s.devUp ? "dev 🟢" : "dev ⚪") : "停用"}</span>
       </div>
       <div class="meta">
-        ${s.dir} · :${s.port}${s.db ? " · 🗄 " + s.db : ""}${s.deployed ? "" : " · <b>未上線</b>"}<br>
+        ${s.dir} · ${s.external ? "外部託管（GitHub Pages）" : ":" + s.port}${s.db ? " · 🗄 " + s.db : ""}${s.deployed ? "" : " · <b>未上線</b>"}<br>
         <a href="${s.devUrl}" target="_blank">${s.devUrl}</a>
       </div>
       <div class="btns">
+        ${s.external ? "" : `
         <button class="bDev" onclick="run(['dev','${s.id}'])">▶ dev</button>
         <button class="bCheck" onclick="run(['check','${s.id}'])">🧪 check</button>
-        <button class="bLogs" onclick="run(['logs','${s.id}'])">📜 logs</button>
+        <button class="bLogs" onclick="run(['logs','${s.id}'])">📜 logs</button>`}
         <button class="bEnv" onclick="toggleEnv('${s.id}')">🔧 env</button>
         ${s.db ? `<button class="bDb" onclick="confirmRun(['db','create','${s.id}'],'在主機建立/確保 ${s.id} 的資料庫？（冪等，會寫入遠端 DATABASE_URL）')">🗄 建 DB</button>` : ""}
-        ${s.deployed ? `<button class="bDeploy" onclick="confirmRun(['deploy','${s.id}'],'部署 ${s.id} 到正式主機？')">🚀 deploy</button>` : ""}
+        ${s.deployed && !s.external ? `<button class="bDeploy" onclick="confirmRun(['deploy','${s.id}'],'部署 ${s.id} 到正式主機？')">🚀 deploy</button>` : ""}
       </div>
       <div class="envPanel" id="env-${s.id}" style="display:none"></div>`;
     grid.appendChild(card);

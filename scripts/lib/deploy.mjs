@@ -8,10 +8,13 @@ import {
   OPS_ROOT,
   ROOT,
   byId,
+  deployableServices,
   deployedServices,
   devUrl,
   hostOpsRoot,
   hostServicesRoot,
+  isExternal,
+  prodUrl,
   services,
 } from "./registry.mjs";
 
@@ -52,7 +55,9 @@ export function ssh(remoteCmd, { capture = false, input } = {}) {
 
 export function deploy(target = "all") {
   if (target !== "all") byId(target); // 驗證存在
-  const ids = target === "all" ? deployedServices().map((s) => s.id) : [target];
+  // hosting:external（例如 GitHub Pages 上的純前端）不歸 deploy.sh 管，這裡只是印給人看的
+  // 清單，用 deployableServices() 才不會謊稱「部署了」一個主機上根本沒有它的服務。
+  const ids = target === "all" ? deployableServices().map((s) => s.id) : [target];
   console.log(`▶ 部署 ${ids.join(", ")}（主機端：git pull ops → deploy.sh）`);
   // ops repo 先自我更新（deploy.sh / ecosystem 吃最新 main），再執行 deploy.sh
   // ——自我更新發生在腳本被 bash 載入之前，避免改到執行中的檔案。
@@ -80,6 +85,11 @@ function probe(port) {
 export async function status() {
   console.log("== 本機 dev（port 探測）==");
   for (const s of services) {
+    // external 沒有本機 port 可探（例如 GitHub Pages 上的純前端），probe(null) 會直接噴例外。
+    if (isExternal(s)) {
+      console.log(`  ⚪ 外部託管  ${s.id.padEnd(9)} ${prodUrl(s)}`);
+      continue;
+    }
     const up = s.enabled ? await probe(s.port) : false;
     const flag = up ? "🟢 執行中" : s.enabled ? "⚪ 未啟動" : "🚫 停用";
     console.log(`  ${flag}  ${s.id.padEnd(9)} :${s.port}  ${devUrl(s)}`);
@@ -99,6 +109,12 @@ export async function status() {
   }
   const byName = new Map(apps.map((a) => [a.name, a]));
   for (const s of services) {
+    // external 本來就不歸 pm2 管（deployed:true 對它只代表「大廳卡片顯示」），
+    // 沒有 pm2 app 是預期狀態，不是「registry 標記 deployed 卻漏部署」那種需要人去檢查的異常。
+    if (isExternal(s)) {
+      console.log(`  ⚪ ${s.id.padEnd(9)} 外部託管，不歸 pm2 管`);
+      continue;
+    }
     const a = byName.get(s.id);
     if (!a) {
       console.log(`  ⚪ ${s.id.padEnd(9)} 未部署${s.deployed ? "（registry 標記 deployed，需檢查！）" : ""}`);
@@ -111,8 +127,9 @@ export async function status() {
   }
 
   console.log("\n== 主機程式碼版本（HEAD vs origin/main）==");
-  // 一條 ssh 掃完所有 deployed 服務；behind>0 = GitHub 有新 merge 還沒部署。
-  const script = deployedServices()
+  // 一條 ssh 掃完所有可部署服務；behind>0 = GitHub 有新 merge 還沒部署。
+  // external 沒有 clone 在主機上，不參與這個比對。
+  const script = deployableServices()
     .map(
       (s) =>
         `cd ${hostServicesRoot}/${s.dir} 2>/dev/null && { git fetch -q origin main 2>/dev/null; ` +

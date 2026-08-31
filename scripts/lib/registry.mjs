@@ -42,6 +42,8 @@ function load() {
   for (const key of ["id", "dir", "subdomain", "port"]) {
     const seen = new Map();
     for (const s of data.services) {
+      // external（不在主機上跑，例如純前端 GitHub Pages）沒有 port，這裡跳過 port 的必填與撞車檢查。
+      if (key === "port" && (s.hosting ?? "host") === "external") continue;
       if (s[key] === undefined || s[key] === null || s[key] === "") fail(`服務缺 ${key} 欄位：${JSON.stringify(s)}`);
       // 撞車檢查只看可能同時運行的服務（enabled）；封存服務允許保留歷史值
       if (!s.enabled) continue;
@@ -77,10 +79,16 @@ export function byId(id) {
 
 export const enabledServices = () => services.filter((s) => s.enabled);
 export const deployedServices = () => services.filter((s) => s.deployed);
+// external（不歸主機 pm2 管，例如 GitHub Pages 上的純前端服務）永遠不算「可部署」，
+// 即使 deployed:true——那個旗標對它只代表「卡片出現在大廳」，不是「pm2 要跑它」。
+// monitor.mjs 刻意繼續用 deployedServices()：external 一樣要監控可用性，只是不歸 pm2 管。
+export const isExternal = (s) => (s.hosting ?? "host") === "external";
+export const deployableServices = () => deployedServices().filter((s) => !isExternal(s));
 export const dbServices = () => enabledServices().filter((s) => s.db);
 
+// external 沒有本機實例（沒有 port 可連），dev 網址直接當正式站網址處理。
 export const devHost = (s) => `${s.subdomain}.${registry.domains.dev}`;
-export const devUrl = (s) => `https://${devHost(s)}:${s.port}`;
+export const devUrl = (s) => (isExternal(s) ? prodUrl(s) : `https://${devHost(s)}:${s.port}`);
 export const prodUrl = (s) => `https://${s.subdomain}.${registry.domains.prod}`;
 export const repoDir = (s) => join(ROOT, s.dir);
 export const dbUrl = (s) => `postgresql://${s.db.user}@localhost:5432/${s.db.name}`;
@@ -101,7 +109,13 @@ export function resolveTarget(arg, { fallback = "all" } = {}) {
   if (t === "all") {
     const missing = enabledServices().filter((s) => !hasRepo(s));
     if (missing.length > 0) console.log(`（略過本機沒有 clone 的服務：${missing.map((s) => s.dir).join(", ")}）`);
-    return localServices();
+    // dev / check / start 這條路都是 Next 專屬工具鏈（next dev、next typegen、start:https）。
+    // hosting:external 的服務（純前端、有自己的 CI）不吃這套，"all" 的便利路徑直接跳過；
+    // 要單獨對它做事仍可以 `tpass <cmd> <id>` 明著點名（會照樣走 Next 工具鏈然後噴錯，
+    // 這是預期行為——提醒你點錯服務了，不是要幫它補一套第二種工具鏈）。
+    const external = localServices().filter(isExternal);
+    if (external.length > 0) console.log(`（略過 external 服務，走自己的 CI：${external.map((s) => s.id).join(", ")}）`);
+    return localServices().filter((s) => !isExternal(s));
   }
   const s = byId(t);
   if (!hasRepo(s)) {
