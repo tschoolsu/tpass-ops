@@ -270,7 +270,7 @@ cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身吃最新 m
 6. `pnpm-lock.yaml` 有變才 `pnpm install --frozen-lockfile`（沒變就跳過，快很多）。
    `node_modules` 不是 pnpm 裝的（首次部署、或 npm 時代的舊裝）也會強制重裝——舊的先備份成 `node_modules.npm-bak`。
 7. `prisma generate`（有 DB 的服務；`pnpm exec`，只用鎖定版本，不會抓最新）。
-8. `pnpm build`。
+8. **先清 `.next/cache/turbopack` 再 `pnpm build`**——Turbopack 的持久快取不追蹤 `node_modules`、也不會因為 `globals.css` 新增 `@source` 就重掃，2026-08-29 引入 tpass-ui 後曾讓正式站 CSS 缺 class（按鈕白字白底）。每次冷 build 多十幾秒，換確定性。
 9. 套 DB schema：依註冊表的 `db.strategy` 跑 `prisma migrate deploy`（標準）或 `prisma db push`（僅限原型）。
 10. `pm2 startOrReload`——既有服務零停機 reload；註冊表新增的服務會自動首次啟動。
 11. **健康檢查**：對服務 port 打 HTTP，30 秒內拿到 <500 回應才算成功（app 起不來不會拿到假的 ✅）。
@@ -727,6 +727,7 @@ tpass deploy auth                                                    # 4.
 | 部署時報 `command not found`，指向一個 email 或網址 | 主機 `.env.local` 裡某個值含空白卻沒加引號。`deploy.sh` 用 shell `source` 匯入，未加引號的空白會被當成指令（見 §4.1） |
 | `tpass db create` 連不上 postgres | 部署帳號尚未取得建庫權——由 root 跑一次 §4.2 的 `CREATE ROLE … LOGIN CREATEDB CREATEROLE` |
 | `tpass db create` 說主機目錄不存在 | 要先在主機 `git clone` repo 到 `/home/service/<dir>`，`db create` 才有地方寫 `DATABASE_URL`（見 §4.2） |
+| 部署後樣式壞掉：按鈕沒底色 / 白字白底、Textarea 只剩一行高、Select 有原生箭頭 | build 產物缺了 `tpass-ui` 的 class。舊版 `deploy.sh`（2026-08-31 前）帶著 Turbopack 暖快取 build 會這樣；現在每次部署都會先清 `.next/cache/turbopack`。手動驗：`scripts/ssh.sh 'grep -c bg-accent /home/service/<dir>/.next/static/chunks/*.css'` 應 ≥1；本機同症狀就 `rm -rf .next/cache/turbopack` 重 build |
 | 部署後 502 | `tpass logs <svc>` 看 pm2 有沒有活；或 nginx 反代的 port 與註冊表不一致 |
 | 服務登記了，大廳還是沒卡片 | 註冊表 merge 之後**沒有重新部署 portal**。auth / portal 是在 build 時把清單烤進去的 |
 | auth / portal 起不來，說讀不到註冊表 | 本機：`tpass-registry` 沒與服務並排 clone。主機：`~/tpass/tpass-registry` 沒 clone，或你手動跑 build 沒帶 `TPASS_REGISTRY_PATH`（正常部署由 `deploy.sh` / `ecosystem.config.js` 注入）。錯誤訊息裡有完整路徑 |

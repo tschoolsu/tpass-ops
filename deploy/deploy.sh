@@ -210,6 +210,12 @@ deploy_one() {
     ( set -a; . "$dir/.env.local"; set +a; pnpm exec prisma generate )
   fi
 
+  # Turbopack 的 build 快取（Next 16 預設開，.next/cache/turbopack）不追蹤 node_modules，
+  # 也不會因為 globals.css 新增 @source 就重掃：2026-08-29 引入 tpass-ui 後，主機上暖快取
+  # build 出來的 CSS 缺了套件裡的 class（bg-accent 等），「下一步」按鈕變白字白底。
+  # 已在主機複本重現（舊 commit 建快取 → 新 commit 暖 build → 缺 class；清掉再 build → 正常）。
+  # 每次部署都從冷快取 build，多花十幾秒換確定性；.tsbuildinfo 等其他快取不動。
+  rm -rf "$dir/.next/cache/turbopack"
   pnpm run build
 
   # 套 schema：策略由 services.json 的 db.strategy 決定（migrate = 有 migrations 歷史）。
