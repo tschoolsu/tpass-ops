@@ -358,6 +358,7 @@ sudo -u postgres psql -c "CREATE ROLE <deploy_user> LOGIN CREATEDB CREATEROLE;"
 
 - **對外入口是 nginx**（不是 Caddy）。vhost 在 `/etc/nginx/sites-available/tschool-sso`、憑證在 `/etc/letsencrypt/`——都是 root 擁有，改動要維運者本人 sudo。
 - **TLS 在 nginx / Cloudflare 終結**；pm2 跑的 Next.js 是純 HTTP，只綁 `127.0.0.1`。
+- **有檔案上傳的服務，server block 要有 `client_max_body_size 21M;`**（nginx 預設 1M）。應用層的單檔上限以此為天花板：T-Form 的 `MAX_FILE_MB = 20`，題目設更大也只會生效 20。
 - app 的 `Secure` cookie 由 env 裡的網址是不是 `https://` 推導出來。
 
 ### 主機目錄
@@ -728,6 +729,7 @@ tpass deploy auth                                                    # 4.
 | `tpass db create` 連不上 postgres | 部署帳號尚未取得建庫權——由 root 跑一次 §4.2 的 `CREATE ROLE … LOGIN CREATEDB CREATEROLE` |
 | `tpass db create` 說主機目錄不存在 | 要先在主機 `git clone` repo 到 `/home/service/<dir>`，`db create` 才有地方寫 `DATABASE_URL`（見 §4.2） |
 | 部署後樣式壞掉：按鈕沒底色 / 白字白底、Textarea 只剩一行高、Select 有原生箭頭 | build 產物缺了 `tpass-ui` 的 class。舊版 `deploy.sh`（2026-08-31 前）帶著 Turbopack 暖快取 build 會這樣；現在每次部署都會先清 `.next/cache/turbopack`。手動驗：`scripts/ssh.sh 'grep -c bg-accent /home/service/<dir>/.next/static/chunks/*.css'` 應 ≥1；本機同症狀就 `rm -rf .next/cache/turbopack` 重 build |
+| 檔案上傳一律「上傳失敗」，小檔卻可以 | nginx 該 server block 沒設 `client_max_body_size`，預設 1M，超過就在 nginx 層 413，進不到 Next。**[root]** 在 443 的 server block 加 `client_max_body_size 21M;` 後 `nginx -t && systemctl reload nginx`。不需登入就能驗：`curl -s -o /dev/null -w '%{http_code}' -F file=@<2MB的檔> https://<svc>.tschoolsu.org/api/upload` 是 401（進到 Next）而不是 413。`tpass new` 印的範本已含這行 |
 | 部署後 502 | `tpass logs <svc>` 看 pm2 有沒有活；或 nginx 反代的 port 與註冊表不一致 |
 | 服務登記了，大廳還是沒卡片 | 註冊表 merge 之後**沒有重新部署 portal**。auth / portal 是在 build 時把清單烤進去的 |
 | auth / portal 起不來，說讀不到註冊表 | 本機：`tpass-registry` 沒與服務並排 clone。主機：`~/tpass/tpass-registry` 沒 clone，或你手動跑 build 沒帶 `TPASS_REGISTRY_PATH`（正常部署由 `deploy.sh` / `ecosystem.config.js` 注入）。錯誤訊息裡有完整路徑 |

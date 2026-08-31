@@ -90,6 +90,7 @@ export async function newService(idArg) {
            server_name ${prod};
            ssl_certificate     /etc/letsencrypt/live/${prod}/fullchain.pem;
            ssl_certificate_key /etc/letsencrypt/live/${prod}/privkey.pem;
+           client_max_body_size 21M;   # nginx 預設 1M，有檔案上傳的服務一定要放大（T-Form 踩過）
            location / {
                proxy_pass http://127.0.0.1:${port};
                proxy_set_header Host $host;
