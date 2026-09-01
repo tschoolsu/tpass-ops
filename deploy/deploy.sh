@@ -102,7 +102,8 @@ check_env() {
   # 於是缺 key 不是在這裡被擋下，而是 build 到收集 page data 才炸（2026-07-28 踩到）。
   keys="$(node -e '
 const fs = require("fs"), path = require("path");
-const dir = path.join(process.argv[1], "src", "config");
+// 有 src/ 的服務在 src/config，沒有的（notes、meeting）在根目錄 config——兩處都找，掃不到＝少檢查。
+const dir = ["src/config", "config"].map((p) => path.join(process.argv[1], p)).find((p) => fs.existsSync(p)) ?? "";
 const out = new Set();
 // tpass-auth-js 的 configFromEnv() 一定會要的五顆（第六顆是呼叫時傳進去的 <SVC>_SELF_URL）。
 // C1 之後這些 key 不在服務的 REQUIRED 陣列裡了，掃不到就等於少檢查。

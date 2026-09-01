@@ -17,9 +17,10 @@ const TPASS_AUTH_KEYS = [
 ];
 
 export function requiredEnvKeys(svc) {
-  const cfgDir = join(repoDir(svc), "src", "config");
+  // 有 src/ 的服務在 src/config，沒有的（notes、meeting）在根目錄 config——兩處都找，掃不到＝少檢查。
+  const cfgDir = ["src/config", "config"].map((p) => join(repoDir(svc), p)).find((p) => existsSync(p));
   const keys = new Set();
-  if (!existsSync(cfgDir)) return keys;
+  if (!cfgDir) return keys;
   for (const f of readdirSync(cfgDir).filter((f) => f.endsWith(".ts"))) {
     const src = readFileSync(join(cfgDir, f), "utf8");
     for (const m of src.matchAll(/REQUIRED\s*=\s*\[([^\]]*)\]/gs)) {
