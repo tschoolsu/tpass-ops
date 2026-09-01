@@ -12,7 +12,7 @@ tags: T-Pass, 手冊
 風格定位：**Playful Tech / Bright Pop Tech**。嚴格 light-only，白底、重邊框、糖果色調，帶有技術手冊與時刻表的俐落感。
 
 > **元件在 [`tpass-ui`](https://github.com/tschoolsu/tpass-ui) 套件，不要手刻。**
-> `pnpm add github:tschoolsu/tpass-ui#v1.0.0`，`globals.css` 加：
+> `pnpm add github:tschoolsu/tpass-ui#v1.0.1`，`globals.css` 加：
 > ```css
 > @import "tpass-ui/theme.css";
 > @source "../../node_modules/tpass-ui/dist";

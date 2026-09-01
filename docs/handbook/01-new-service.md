@@ -221,7 +221,7 @@ gh repo create tschoolsu/tpass-lost --private --source=. --push
 裝 UI 元件（不要手刻 `Button`/`Card` 這類 primitives，詳見《T-Pass Design System》）：
 
 ```bash
-pnpm add github:tschoolsu/tpass-ui#v1.0.0
+pnpm add github:tschoolsu/tpass-ui#v1.0.1
 ```
 
 `src/app/globals.css` 開頭的 `@import "tailwindcss";` 後面加兩行（Tailwind v4 預設不掃
