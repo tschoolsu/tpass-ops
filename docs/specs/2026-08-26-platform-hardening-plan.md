@@ -586,7 +586,13 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
       ① **notes 的 UptimeRobot monitor 要手動加**（`https://notes.tschoolsu.org/`，
       **接受碼 2xx+3xx**，未登入回 307）。加之前 `tpass status` 的「== 監控 ==」會一直
       ⚠️ 標它——那正是 A2 寫那段的理由。
-      ② **meeting 只做了「納管」，沒上線**（`enabled:true` / `deployed:false`）。
+      ② ~~**meeting 只做了「納管」，沒上線**（`enabled:true` / `deployed:false`）。~~
+      **2026-09-01 上線完成**：程式碼先對齊規則（tpass-ui／tpass-auth-js／config/*.ts／pnpm／CI，
+      並做了一輪 UX 精簡，見該 repo `docs/HANDOFF.md`），主機側 root 一次性 `pm2 delete` + `chown`，
+      `.env.local` 補 `MEETING_SELF_URL`，registry#9 翻 `deployed:true`，`tpass deploy meeting` + `portal`。
+      順手修了 ops 的 env 必填檢查（只找 `src/config/`，notes／meeting 沒有 `src/` 之前是掃到 0 顆 key 靜默通過）。
+      未完成：Uptime Kuma monitor（後台在部長手上）、root 的 pm2 dump 要 `sudo pm2 save --force` 清掉舊的 tpass-meeting。
+      原文如下，留作對照：
       `enabled:true` 的實質效果是**修好它的登入**——在此之前它不在註冊表，
       auth 的 authorize 一律回 `unknown-service`，那個服務從 8/26 上線起登入就是壞的。
       剩下的上線步驟與 notes 完全相同：轉移目錄所有權（root）、從 root 的 pm2 交給部署帳號、
