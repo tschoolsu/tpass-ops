@@ -35,7 +35,8 @@ export async function newService(idArg) {
     const label = await ask("  卡片顯示名", name);
     const icon = await ask("  圖示（lucide 的 PascalCase 名，見 lucide.dev/icons）", "PackageSearch");
     const tone = await ask(`  配色（${TONES.join(" | ")}）`, "green");
-    portal = { label, icon, tone, roles: ["all"] };
+    const category = await ask(`  分類（governance=治理 | service=生活服務 | event=限定活動）`, "service");
+    portal = { label, icon, tone, category };
   }
   rl.close();
 

@@ -111,7 +111,7 @@ CI 每個 PR 都會跑一次 `validate.mjs`，所以第 4 步只是讓你不用�
   "db": { "name": "t_lost", "user": "t_lost", "strategy": "migrate" },
   "enabled": true,
   "deployed": false,        // ← 佔位階段就是這個 false
-  "portal": { "label": "遺失物", "icon": "Search", "tone": "orange", "roles": ["all"] }
+  "portal": { "label": "遺失物", "icon": "Search", "tone": "orange", "category": "service" }
 }
 ```
 
@@ -220,7 +220,7 @@ gh pr create --fill
     "label": "遺失物",
     "icon": "Search",        // lucide-react PascalCase
     "tone": "orange",        // green | blue | orange | violet | rose
-    "roles": ["all"]         // all | student | teacher
+    "category": "service"    // governance | service | event，大廳分區用（哪個工具，不是誰在用）
   }
 }
 ```

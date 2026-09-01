@@ -171,7 +171,7 @@ git checkout -b add-lost
     "label": "遺失物",
     "icon": "Search",                                 // lucide 的 PascalCase 名
     "tone": "orange",                                 // green|blue|orange|violet|rose
-    "roles": ["all"]
+    "category": "service"                             // governance|service|event，大廳分區用
   }
 }
 ```
@@ -946,7 +946,7 @@ callback 收到的 token，解開後結構如下：
     "label": "遺失物",        // 卡片顯示名
     "icon": "Search",        // lucide 圖示的 PascalCase 名（見 lucide.dev/icons）
     "tone": "orange",        // green | blue | orange | violet | rose
-    "roles": ["all"]         // all | student | teacher
+    "category": "service"    // governance | service | event，大廳分區用（哪個工具，不是誰在用）
   }
 }
 ```
