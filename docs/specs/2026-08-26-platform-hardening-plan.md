@@ -649,7 +649,9 @@ C1 管執行期正確性（驗章邏輯本身），skill 管生成期正確性�
       用靜態、不保留路徑是刻意的：apex 底下沒有內容，`tschoolsu.org/foo` 保留路徑
       只會變成 portal 的 404，丟掉路徑直接落到大廳才對。
       UptimeRobot 的 `tschoolsu.org` monitor 已從 Paused 開回來，等它下一輪翻綠即可。
-- [x] B1 部署搬進 GitHub Actions（2026-08-27 完成）
+- [x] B1 部署搬進 GitHub Actions（2026-08-27 完成；**2026-09-02 廢除**——與主機上的手動部署／
+      手打 pm2 互撞，是當天 meeting 重啟風暴的環境因素之一。`deploy.yml`、`ci-deploy.sh` 已刪，
+      `deploy.sh` 改加 `flock`；部署回到單一路徑 `tpass deploy`。以下為當時的紀錄，留作對照）
       **[Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
       輸入框打服務 id（`all` / `ping` / 單一 id）。合法清單**現場抓 `tpass-registry/services.json`**，
       不寫死在 workflow 裡——新服務上線這個檔案一行都不用改。

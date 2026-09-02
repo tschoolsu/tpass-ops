@@ -178,10 +178,8 @@ gh pr create --fill
 | 大廳卡片相關（`portal` 區塊、`deployed`、`subdomain`） | `portal` |
 | 拿不準 | 兩個都部署，不會有壞處 |
 
-**部署你自己來，不必找維運**（2026-08-27 起）：
-**[tpass-ops → Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
-輸入 `auth`，再按一次輸入 `portal`。只需要 `tpass-ops` 的寫入權，不需要主機憑證。
-（有主機帳號的人也可以照舊 `tpass deploy auth`，跑的是同一支腳本。）
+部署從本機發動：`tpass deploy auth`、`tpass deploy portal`（需要主機 ssh 帳號；沒有就找維運部員）。
+GitHub Actions 的部署按鈕已於 2026-09-02 廢除。
 
 在主機上單獨 `git pull` 註冊表**不會**生效——程序還跑著舊的那份記憶體。
 
@@ -233,7 +231,7 @@ gh pr create --fill
 
 不必手動清理：`deploy.sh` 每次都把它 `reset --hard` 回 `origin/main`，手改一定被沖掉。
 沖掉之前那份 diff 會印在部署 log 裡（`==================== registry ====================` 底下），
-所以要救回內容就去看那次部署的輸出——GitHub Actions 的執行紀錄留著，`tpass deploy` 的話看終端機。
+所以要救回內容就去看那次部署的終端機輸出。
 
 想在部署之前先看的話：
 
