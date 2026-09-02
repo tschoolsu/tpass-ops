@@ -138,6 +138,13 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
 **安全 / 架構紅線（違反就是 bug）：**
 
 - ❌ 消費端不要 import / 複製 auth 的私鑰、`arctic`、OAuth callback。**只需要公鑰。**
+  > **例外（`tpass-schedule`，2026-08-30 起）**：課表服務為了把個人課表寫進學生自己的
+  > Google 主日曆（讓大家在 GCal 的「尋找時間」原生看到彼此空堂），持有一組**獨立**的
+  > Google OAuth client（`https://www.googleapis.com/auth/calendar.events`），建在學校
+  > Workspace 的 GCP 專案下、同意畫面設 Internal。**這組 client 只能用來取得 Calendar
+  > 寫入授權，不得用於登入或發證**——「這是誰」永遠讀 T-Pass session，不是這裡的 Google
+  > profile。這是目前生態系裡唯一的例外；任何其他服務要照抄前，先在部內審查說清楚為什麼
+  > 不能走 T-Pass。細節見該服務 `src/config/calendar.ts` 與 README。
 - ❌ 不要在前端驗章、不要把 token 塞 `localStorage`、不要關掉 `algorithms: ['EdDSA']` 鎖定。
 - ❌ 不要在服務裡復活一份手抄的 `src/lib/tpass-auth.ts`（2026-08-27 六份全部刪掉了）。驗章要改就去 `tpass-auth-js` 改，那裡有測試；服務端只留 `config/*.ts` 那一行綁定。
 - ❌ 不要在服務裡復活 `src/components/ui/primitives.tsx`（2026-08-29 四個消費端全刪，portal/auth 本來就沒有）。元件要改就去 `tpass-ui` 改，服務端只 import。
