@@ -674,16 +674,24 @@ datasource db {
 
 ```ts
 import { config } from "dotenv";
-import { defineConfig, env } from "prisma/config";
+import { defineConfig } from "prisma/config";
 
+// 先 .env.local 再 .env：跟 Next 一樣的優先序。
 config({ path: [".env.local", ".env"] });
+
+// 有 DATABASE_URL 才給 datasource：`prisma generate`（postinstall、CI、fresh clone）不需要連線，
+// 缺 env 也要能跑；`migrate` 系列缺了會由 Prisma 自己報「datasource.url property is required」。
+// 不要寫假的 fallback 連線字串——那會讓 migrate 連去不存在的庫而不是 fail fast。
+const url = process.env.DATABASE_URL;
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: { path: "prisma/migrations" },
-  datasource: { url: env("DATABASE_URL") },
+  ...(url ? { datasource: { url } } : {}),
 });
 ```
+
+> 不要用 `env("DATABASE_URL")` helper：Prisma 7.10 在 config 載入時就解析它，沒 env 的機器連 `generate` 都起不來（2026-09-02 補 vote 的 CI 時實測）。
 
 `src/lib/db.ts`：
 
