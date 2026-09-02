@@ -27,9 +27,9 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-form/` | 問卷系統（T-Form） | `https://form.lvh.me:3002` | 問卷建構/填寫/匯出，PostgreSQL+Prisma。 |
 | `tpass-cross_grade_messages/` | 跨屆代傳（T-Msg） | `https://msg.lvh.me:3003` | 訊息廣播到 Google Chat webhook，PostgreSQL+Prisma。 |
 | `tpass-appeals/` | 申訴系統（T-Appeals） | `https://appeals.lvh.me:3004` | 申訴收件 + Discord 通知，PostgreSQL+Prisma。 |
-| `tpass-notes/` | 共編筆記（T-Notes） | `https://notes.lvh.me:3007` | 學術部共編筆記，**不是 Prisma**——直接用 `pg` + `POSTGRES_URL`，schema 由服務自己 `CREATE TABLE IF NOT EXISTS`（註冊表 `strategy:"none"`）。2026-08-26 納入 ops 部署管道並上線。 |
+| `tpass-notes/` | 共編筆記（T-Notes） | `https://notes.lvh.me:3007` | 學術部共編筆記。**全生態唯一還在 `pg` 直連 + 啟動時 `CREATE TABLE IF NOT EXISTS` + 手抄驗章的服務**（註冊表 `strategy:"none"`），違反 2026-09-02 資料庫準則，去留待 2026-09-02 晚間會議決定；留就遷 Prisma 7 + `tpass-auth-js`。 |
 | `tpass-buddy/` | 直屬配對（T-Buddy） | `https://buddy.lvh.me:3008` | 115 直屬活動限定的臨時服務，無資料庫（狀態是 gitignored 的 `data/pairs.json`）。活動結束就下架。 |
-| `tpass-meeting/` | 會議輔助（T-Meeting） | `https://meeting.lvh.me:3009` | 會議記錄/簽到/表決 + API key，`pg`（`strategy:"none"`）。**沒有 `src/`**（`app/`、`lib/`、`config/` 在根目錄）。2026-09-01 程式碼已對齊規則（tpass-ui、tpass-auth-js、env 全走 `config/*.ts`、pnpm、CI），self url env 改名 **`MEETING_SELF_URL`**（主機 `.env.local` 要跟著改，並補 `PORTAL_URL`）。**2026-09-01 正式納入 ops 管道**（registry `deployed:true`，主機目錄交給部署帳號、pnpm、由 `tpass deploy meeting` 管，大廳有卡片）。 |
+| `tpass-meeting/` | 會議輔助（T-Meeting） | `https://meeting.lvh.me:3009` | 會議記錄/簽到/表決/即時投屏 + API key。**沒有 `src/`**（`app/`、`lib/`、`config/` 在根目錄）。2026-09-02 從 `pg` 直連遷到 **Prisma 7 + migrations**（`0_init` baseline，主機首次部署前要 `prisma migrate resolve --applied 0_init`）；SSE 在 SIGINT 時主動關閉。self url env `MEETING_SELF_URL`。 |
 | `tpass-vote/` | 選舉系統（T-Vote） | `https://vote.lvh.me:3006` | 開發中，尚未上線（註冊表 `deployed:false`）。設計決策見 memory。 |
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
 | `tpass-auth-js/` | **驗章共用套件** | — | **public repo**，並排 clone（非必要——各服務是用 git URL 安裝它，不是相對路徑）。消費端的驗章四鐵則、callback/logout route handler 都在這裡，有 27 個測試守著。**2026-08-27 起 portal/form/msg/appeals/vote/buddy 六個消費端都吃它，2026-09-01 meeting 也遷過去（只剩 notes 還是手抄），不要再在服務裡手抄 `lib/tpass-auth.ts`。** |
