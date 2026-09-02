@@ -38,6 +38,7 @@ tags: T-Pass, 手冊
   - [細粒度授權](#細粒度授權)
   - [管理權限：auth 的 /admin panel](#管理權限auth-的-admin-panel)
   - [驗收：授權](#驗收授權)
+- [資料庫](#資料庫)
 - [本機開發](#本機開發)
   - [建立本機憑證](#建立本機憑證)
   - [啟動本機 auth](#啟動本機-auth)
@@ -105,7 +106,7 @@ T-Pass 的角色分工可以概括為一句話：**auth 負責發證，服務負
 | --- | --- | --- |
 | **dev 密鑰包** | 一組僅限本機使用的 Google OAuth client（id + secret），用於本機執行 auth | 開始前（〈本機開發〉會用到） |
 | **主機 ssh 帳號** | 上線時把 repo clone 到主機、寫 `.env.local` 用。**絕不寫入任何 repo、commit、PR** | 上線時（見〈部署〉第 6 步） |
-| **`tpass-ops` 寫入權** | 按部署按鈕用（GitHub Actions）。不含任何主機憑證 | 上線時（見〈部署指令〉） |
+| **主機 ssh 帳號（同上）** | 部署一律從本機 `tpass deploy` 發動，需要能 ssh 進主機 | 上線時（見〈部署指令〉） |
 
 > [!IMPORTANT]
 > dev 的 Google client 與正式站是不同的兩組，dev 僅放行 `*.lvh.me` 的回跳網址。即使外流也不影響正式站，但仍不應貼入 Slack 或提交至版本控制。
@@ -630,6 +631,97 @@ superadmin；不能調降自己在 auth 的 role。ban 需二次確認且必填�
 - [ ] 對某人下 `warning` → 他登入後在你的服務看得到警告呈現（你自訂的版型，例如照抄 `WarningBanner`）。
 - [ ] `tpass.permOf(session)` 對缺資料的情況（例如剛登記還沒設定）回傳安全預設值 `{read:true, role:"default"}`，不會誤鎖使用者。
 
+## 資料庫
+
+**只有一種做法：Prisma 7 + PostgreSQL + migrations。** 2026-09-02 的事故（meeting 每次啟動自己跑
+`CREATE TABLE IF NOT EXISTS`／`ALTER TABLE` 整包 DDL，對所有表拿排他鎖，撞出 deadlock；pg 連線池沒掛
+error handler，資料庫重啟就滿版 uncaughtException）就是自己用 `pg` 直連、沒有 migration 的代價。
+
+八條規則，`tpass-skills` 的 `check.sh` 會抓其中能 grep 的：
+
+1. **只准 Prisma 7 + PostgreSQL**，driver 一律 `@prisma/adapter-pg`。`src/lib/db.ts` 用下面的樣板，
+   **池上限與逾時必填**（Prisma 7 的池就是 pg 的 Pool，預設沒有任何逾時）。
+2. **schema 只能透過 `prisma migrate dev` 產 migration**（`prisma/migrations/`）。
+   **禁止在服務啟動時跑任何 DDL 或資料遷移**。`prisma db push` 只准本機原型，不准上正式。
+   註冊表的 `db.strategy` 新服務只能填 `migrate`。
+3. **一個服務一組 PostgreSQL role + database**（`t_<id>`）。連線字串只從 env 來，
+   程式碼裡**不准有 fallback 預設連線字串**（缺 env 要 fail fast，不要靜默連到別的庫）。
+4. **多步驟寫入必須包 `$transaction`**；interactive transaction（`$transaction(async tx => …)`）要給 `timeout`。
+5. 需要 `LISTEN/NOTIFY`（即時推播）才准另開**一條**獨立的 `pg` client，且只做 LISTEN；
+   資料存取一律走 Prisma，`NOTIFY` 用 `prisma.$executeRaw`。
+6. **檔案上傳只准寫 `data/` 或 `uploads/`**（`deploy/backup.sh` 只備份這兩個目錄）。
+   DB 記錄與檔案雙寫：先寫檔、再寫 DB；刪除先刪 DB、再刪檔，刪檔失敗要記 log 不要吞掉。
+7. **有長連線（SSE／WebSocket）的服務必須處理 `SIGINT`／`SIGTERM`**，主動關閉連線讓 Next 能正常退出，
+   否則 pm2 每次 reload 都得 SIGKILL，進行中的查詢直接斷。
+8. 主機上**禁止 `sudo pm2`、禁止手改 pm2 app 選項、禁止手跑 `pnpm build`**；部署只有 `tpass deploy` 一條路。
+
+### 標準檔案
+
+`prisma/schema.prisma`：
+
+```prisma
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+```
+
+`prisma.config.ts`（repo 根目錄）：
+
+```ts
+import { config } from "dotenv";
+import { defineConfig, env } from "prisma/config";
+
+config({ path: [".env.local", ".env"] });
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: { path: "prisma/migrations" },
+  datasource: { url: env("DATABASE_URL") },
+});
+```
+
+`src/lib/db.ts`：
+
+```ts
+import "server-only";
+import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+  max: 10,
+  connectionTimeoutMillis: 5_000,
+  idleTimeoutMillis: 30_000,
+  options: "-c statement_timeout=30000",
+});
+
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
+
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({ adapter, log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"] });
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+```
+
+`package.json`：`@prisma/client`、`@prisma/adapter-pg`、`pg` 進 dependencies；`prisma`、`@types/pg`、`dotenv`
+進 devDependencies；scripts 加 `"postinstall": "prisma generate"`（Prisma 7 裝套件不再自動 generate）。
+`.gitignore` 加 `/src/generated`，`eslint.config.mjs` 的 `globalIgnores` 加 `src/generated/**`。
+
+### 日常
+
+| 你要做 | 指令 |
+| --- | --- |
+| 改了 `schema.prisma` | `pnpm exec prisma migrate dev --name <說明>` → 產生 migration 檔一起 commit |
+| 拉了別人的 migration | `pnpm exec prisma migrate dev`（本機套用）|
+| 正式機 | `tpass deploy <id>` 會跑 `prisma migrate deploy`，你不用碰 |
+| 看正式機少套了哪些 | 主機上 `pnpm exec prisma migrate status` |
+
 ## 本機開發
 
 測試登入需同時執行兩個服務：一份 **auth**（發證端）與**目標服務**（驗證端）。兩者皆須為 **HTTPS**，且皆須運行於 `*.lvh.me` 的子網域上。
@@ -697,10 +789,9 @@ AUTH_SUPERADMINS=<你的學校信箱>                   # 生態總管，恆為�
 > ——就是你在〈服務註冊〉fork 下來的那份，你加的那筆已經在裡面，本機不需要另外設定。
 > 改了那個檔要**重啟 auth** 才生效（清單在啟動時讀進來）。
 
-套用資料庫 schema（Prisma CLI 只讀 `.env`，所以先把 `.env.local` 匯進環境）：
+套用資料庫 schema（Prisma 7 的 `prisma.config.ts` 會自己讀 `.env.local`）：
 
 ```bash
-set -a; . ./.env.local; set +a
 pnpm exec prisma migrate deploy
 ```
 
@@ -819,13 +910,17 @@ pnpm exec tsc --noEmit
 
 主機上已備有 `deploy.sh`。針對指定服務，此腳本會依序執行：**拉取最新註冊表**（`tpass-registry`）→ **env 必填檢查**（缺 key 於 build 前即擋下）→ `git pull` → 視需要 `pnpm install --frozen-lockfile` → `prisma generate` → `pnpm build` → 套用 DB schema → `pm2` zero-downtime reload → **健康檢查**（打服務所在 port，30 秒內未收到健康回應即視為失敗）。
 
-**發動部署不需要主機憑證**（2026-08-27 起）：
-**[tpass-ops → Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
-在輸入框打服務 id，按 Run。你需要的只是 `tpass-ops` 的寫入權。
+部署一律從**本機**發動（需要 ops repo 的 clone、`deploy/host.env` 與主機 ssh 帳號）：
 
-三個服務都要部署，**照這個順序按三次**：
+```bash
+scripts/tpass deploy lost
+scripts/tpass deploy auth
+scripts/tpass deploy portal
+```
 
-| 順序 | 輸入 | 為什麼不能省 |
+三個服務都要部署，**照這個順序**：
+
+| 順序 | 服務 | 為什麼不能省 |
 | --- | --- | --- |
 | ① | `lost` | 你的服務首次啟動 |
 | ② | `auth` | 發證白名單納入 `lost`，否則使用者會被導去 `/service-error` |
@@ -833,25 +928,20 @@ pnpm exec tsc --noEmit
 
 ②③ 不能省略：auth 與 portal 是在 **build 時**把註冊表烤進去的，不重新部署就不會知道有你這號人物。
 
-每次執行的 log 就是 `deploy.sh` 的完整輸出——env 必填檢查、`📌 部署版本：<sha>`、健康檢查結果。
-**部署失敗時錯誤訊息就在那頁，不必進主機。**
+終端機上的輸出就是 `deploy.sh` 的完整 log——env 必填檢查、`📌 部署版本：<sha>`、健康檢查結果。
+起不來時 `tpass logs lost` 看主機 log。
 
-> [!WARNING]
-> **按鈕解決的是「部署」，不是「第一次把 repo 放上主機」。**
-> 上面那張表的第 6 步（`git clone` 到 `/home/service/tpass-lost` + 寫 `.env.local`）
-> 仍然需要主機 ssh，跟維運要。同理，`pm2 status` / `pm2 logs` 也還在主機上。
-> 你的服務起不來時，Actions log 的健康檢查失敗訊息會告訴你去找誰看 log。
+> [!NOTE]
+> GitHub Actions 的部署按鈕已於 2026-09-02 廢除（與手動部署互撞）。沒有主機帳號就找維運部員替你部署。
 
-**Rollback**：於 repo 執行 `git revert` 產生新 commit → merge 進 main → 再按一次 Run workflow 輸入 `lost`，不需特殊機制。build 失敗時舊版程序不受影響、不會停機——`deploy.sh` 採先 build 成功才 reload 的策略。
+**Rollback**：於 repo 執行 `git revert` 產生新 commit → merge 進 main → 再 `tpass deploy lost`，不需特殊機制。build 失敗時舊版程序不受影響、不會停機——`deploy.sh` 採先 build 成功才 reload 的策略。
 
-#### 逃生路徑：主機上直接跑
-
-GitHub 掛了、或你本來就有主機帳號時：
+**手動等價**（跟 `tpass deploy` 跑的是同一支腳本）：
 
 ```bash
 ssh <帳號>@<主機>                     # 位址與帳號跟維運要。★ 絕不寫進任何 repo / commit / PR
 cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身）；註冊表由 deploy.sh 自己拉
-./deploy/deploy.sh lost               # 跟按鈕跑的是同一支腳本
+./deploy/deploy.sh lost
 ```
 
 ## 疑難排解

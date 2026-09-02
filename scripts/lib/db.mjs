@@ -1,6 +1,7 @@
 // 本機 Postgres 自動化：建 role/db（冪等）、補 .env.local 的 DATABASE_URL、跑 prisma。
 // 慣例：每服務獨立 role + db，名稱 = services.json 的 db.user / db.name（t_<id>）。
-// 注意：Prisma CLI 只讀 .env，不讀 .env.local —— 跑 prisma 前先把 .env.local 匯入環境。
+// Prisma 7 的 prisma.config.ts 自己會讀 .env.local；這裡仍把 .env.local 匯入子程序環境，
+// 讓還沒升到 7 的 repo（或沒有 prisma.config.ts 的）也跑得動。
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, readFileSync } from "node:fs";

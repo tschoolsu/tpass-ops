@@ -146,7 +146,8 @@ EOF
 
 # ---------- 2. 檔案狀態（<dir>/data/、<dir>/uploads/）----------
 # 目錄名列成清單，不為個別服務開特例。要再收一個名字就加在這裡一個字。
-STATE_DIRS="data uploads"
+# .uploads：appeals／vote 的 local storage driver 寫這裡（2026-09-02 盤點才發現一直沒備到）。
+STATE_DIRS="data uploads .uploads"
 FILES=0
 while IFS='|' read -r id dir; do
   [ -n "$id" ] || continue

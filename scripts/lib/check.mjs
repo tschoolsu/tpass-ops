@@ -40,7 +40,7 @@ export function requiredEnvKeys(svc) {
 }
 
 export function checkEnv(svc) {
-  // 本機接受 .env.local 或 .env（Prisma CLI 只讀 .env，部分 repo 用它）；key 在任一檔即算有
+  // 本機接受 .env.local 或 .env（歷史上部分 repo 為了 Prisma 6 的 CLI 用 .env）；key 在任一檔即算有
   const files = [".env.local", ".env"].map((f) => join(repoDir(svc), f)).filter(existsSync);
   if (files.length === 0) return { ok: false, missing: [...requiredEnvKeys(svc)], noFile: true };
   const content = files.map((f) => readFileSync(f, "utf8")).join("\n");

@@ -8,6 +8,14 @@
 # 用法： deploy.sh [<svc>|all]   （預設 all = services.json 中 deployed:true 者）
 set -euo pipefail
 
+# 同一時間只准一個部署在跑。2026-09-02 兩條部署路徑（Actions + 手動）互撞是事故成因之一；
+# Actions 已廢除，剩下的「兩個人同時 tpass deploy」在這裡明確失敗，而不是互相踩到一半。
+exec 9>"$HOME/.tpass-deploy.lock"
+if ! flock -n 9; then
+  echo "❌ 另一個部署正在跑（$HOME/.tpass-deploy.lock 被持有）。等它結束再來。" >&2
+  exit 1
+fi
+
 # 非互動 ssh 不 source rc；pnpm 是無 root 的 standalone 安裝（住在 $PNPM_HOME），此處自帶 PATH。
 export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
 export PATH="$PNPM_HOME:$PATH"
@@ -198,7 +206,7 @@ deploy_one() {
 
   strategy="$(svc_strategy "$s")"
 
-  # Prisma CLI 只讀 .env，不讀 .env.local；先把 .env.local 匯進環境再跑。
+  # Prisma 7 的 prisma.config.ts 自己會讀 .env.local；這裡照樣匯入環境，讓還沒升 7 的服務也能跑。
   # generate 必須在 build 之前：schema.prisma 一改、型別就變，build 的 tsc 檢查靠的是
   # node_modules 裡「上次生成」的 client。這步不能靠 install 順便帶到——
   # 沒有 postinstall 掛 prisma generate，且 pnpm-lock.yaml 沒變時 install 整個被跳過，

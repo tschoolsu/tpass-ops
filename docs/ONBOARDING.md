@@ -92,14 +92,9 @@
 
 **每個服務是一個獨立的 git repo**（不是 monorepo）。頂層 `tschool/` 本身也是一個 repo（`tpass-ops`），只追蹤維運層：`scripts/`、`deploy/`、`docs/`。
 
-git repos（全部在 GitHub 的 **`tschoolsu` 組織**底下，2026-08-01 核對）：
-
-- **private**：`tpass-ops`（頂層）——**唯一一個私有的**
-- **public**：`tpass-registry`（服務註冊表，部員 fork + PR 的地方）、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、`tpass-appeals`
-- **還沒有 GitHub repo**：`tpass-vote`（只在本機，有 commit 但無 remote）、`tpass-directory`（本機封存）
-
-> ⚠️ 五個服務 repo 是 **public**。若這不是刻意的，要儘早改——公開的是原始碼與 `.env.example`，
-> 真值都在各機器的 `.env.local`（不進 git），但公開範圍應該是有意識的決定，不是預設值。
+git repos：**全部 public，包含 `tpass-ops` 本身**（2026-08-27 核對；哪個 repo 在哪個帳號底下見 `AGENTS.md` §1 的註記，不在這裡再抄一份）。
+公開的是原始碼與 `.env.example`，真值都在各機器的 `.env.local`（不進 git）。
+**任何 workflow 的執行紀錄也是公開的**——log 裡不得出現主機位址。
 
 > 🚫 **鐵律**：頂層 ops repo 絕對不要 `git add` 服務子 repo、`tpass-registry/`、`deploy/host.env`、`certs/`。機密與服務程式碼都不進 ops repo。
 >
@@ -194,55 +189,19 @@ scripts/tpass start        # 大改動再跑：build + start（抓 dev 抓不到
 
 ## 4. 部署
 
-### 首選：GitHub Actions（不需要主機憑證）
-
-**[tpass-ops → Actions → deploy → Run workflow](https://github.com/tschoolsu/tpass-ops/actions/workflows/deploy.yml)**，
-在輸入框打服務 id 就好：
-
-| 輸入 | 做什麼 |
-| --- | --- |
-| `all`（預設） | 註冊表裡所有 `deployed:true` 的服務 |
-| `form` / `buddy` / … | 單一服務 |
-| `ping` | **不部署**，只回答「CI 那把金鑰還連得上主機嗎」 |
-
-合法的 id 是**現場去抓 `tpass-registry/services.json` 算出來的**，不寫死在 workflow 裡
-——新服務上線時這個檔案一行都不用改。打錯會在幾秒內紅燈並印出可用清單。
-
-**任何有 `tpass-ops` 寫入權的人都能按**，不必拿到主機位址、帳號或任何金鑰。
-每次執行的 log 裡有 `📌 部署版本：<sha> <commit 標題>`，那份紀錄本身就是稽核軌跡。
-同一時間只允許一個部署在跑（`concurrency`），兩個人同時按不會在主機上互相踩。
-
-> ⚠️ **`tpass-ops` 是 public repo，Actions 的 log 也是公開的。**
-> 主機位址 / 帳號 / 金鑰全部走 GitHub Secrets，值在 log 裡自動被遮成 `***`。
-> 之後往 `deploy.sh` 加任何 `echo` 時，記得它會被全世界看到。
-
-**它是怎麼運作的**（三個檔案，沒有別的）：
-
-1. `.github/workflows/deploy.yml` — 在 GitHub 借來的臨時 Linux 上跑，
-   從 Secrets 佈好 SSH 金鑰，然後 `ssh <主機> "<服務 id>"`。
-2. 主機 `~/.ssh/authorized_keys` 裡 CI 那把金鑰前面掛了
-   `command="~/tpass/deploy/ci-deploy.sh",restrict` — **強制命令**：
-   送什麼指令過來 sshd 都丟掉，一律改跑那支包裝層，原字串塞進 `$SSH_ORIGINAL_COMMAND`。
-3. `deploy/ci-deploy.sh` — 把那個字串當服務 id 白名單過濾（`^[a-z0-9_-]+$`），
-   然後 `git pull` + `./deploy/deploy.sh <svc>`。跟本機 `tpass deploy` 是同一條路。
-
-所以 **「有 repo 寫入權」＝「能按部署」，不等於「主機上那個帳號的 shell」**。
-拿到那把私鑰也開不了互動 shell、跑不了任意指令。
-
-**CI 金鑰是獨立的一把**（`github-actions-deploy`），不是任何人本人那把
-——撤銷 CI 權限只要刪掉 `authorized_keys` 裡那一行，不影響個人連線。
-私鑰只存在 GitHub Secrets，**讀不回來**；要換就重產一把、重設 secret、重寫那一行。
-
-### 逃生路徑：本機直連
-
-GitHub 掛了、Actions 壞了、或你就是想看即時輸出：
+### 部署指令（唯一路徑：本機 `tpass deploy`）
 
 ```bash
 scripts/tpass deploy form   # 單一服務
 scripts/tpass deploy        # 全部（registry 裡 deployed:true 的）
 ```
 
-**手動等價（部員就是這樣做的，效果一模一樣）**——真正的部署腳本 `deploy.sh` **住在主機上**：
+需要 `deploy/host.env`（gitignored，範本 `host.env.example`）與你自己的主機 ssh 金鑰。
+**GitHub Actions 的部署 workflow 已於 2026-09-02 廢除**：兩條部署路徑並存時，Actions 與主機上
+的手動操作互撞是當天事故的成因之一。CI 那把金鑰與四個 `DEPLOY_*` secret 已一併撤銷；
+不要再加回來，要多人能部署就多發主機帳號。
+
+**手動等價（效果一模一樣）**——真正的部署腳本 `deploy.sh` **住在主機上**：
 
 ```bash
 ssh <帳號>@<主機>                     # 位址與帳號絕不進 git
@@ -250,7 +209,8 @@ cd ~/tpass && git pull --ff-only      # 更新 ops（deploy.sh 本身吃最新 m
 ./deploy/deploy.sh form               # 或 all；註冊表由 deploy.sh 自己 pull
 ```
 
-`tpass deploy` 就只是幫你打這三行。
+`tpass deploy` 就只是幫你打這三行。`deploy.sh` 開頭有 `flock`：同一時間只允許一個部署在跑，
+第二個人會立刻看到「另一個部署正在跑」而不是踩到一半。
 
 ### 主機端每次部署做什麼
 
@@ -394,6 +354,20 @@ scripts/ssh.sh '<cmd>'      # 跑單一指令
 
 > 🔒 **主機位址與帳號是機密**，只存在 gitignored 的 `deploy/host.env`（範本 `deploy/host.env.example`）。
 > **絕對不要**把主機 IP / 帳號寫進任何被 git 追蹤的檔案、commit、PR、或這份文件。
+
+### 主機操作紅線（2026-09-02 事故後訂）
+
+那天主機上發生過的每一件事都對應一條：
+
+- **不要 `sudo pm2`**。root 有自己的 pm2 daemon（`/root/.pm2`），`sudo pm2 delete xxx` 動的是那份，
+  部署帳號的 pm2 完全不知道；兩份狀態並存只會讓下一個人更看不懂。
+- **不要手打 pm2 選項**（`pm2 restart <svc> --instances 2 --max-memory-restart 1G` 之類）。
+  選項的真相只有 `deploy/ecosystem.config.js`；手改過的 app 之後 `startOrReload` 救不回來，要 delete 重建。
+  `--instances 2` 還會讓 in-memory rate limit／SSE 訂閱者分裂成兩份。
+- **不要在服務目錄手跑 `pnpm build`／`git pull`**，更不要 `sudo` 跑——`.next/`、`.git/objects/` 會變 root 擁有，
+  下一次部署炸 `EACCES`。要部署就 `tpass deploy`。
+- **不要把診斷腳本留在服務目錄**（例：`probe.js`）。用完就刪，或放 `~/`。
+- 部署只有一條路：本機 `tpass deploy`。GitHub Actions 部署已於 2026-09-02 廢除。
 
 ### 本機 vs 正式：只有 env 的值不同
 
@@ -557,26 +531,10 @@ Kuma 補掉了備份的死人開關，但它自己也需要一個——**它跑�
    但真的靜下來時這支會無聲關掉——而它關掉時同樣沒有人會通知你。
 2. 排程實際延遲常到 10～15 分鐘。這對「監控活著沒」夠用；服務本身的秒級監控是 Kuma 的事。
 
-### 🚧 轉換狀態（2026-08-28）
+### 轉換狀態
 
-從 UptimeRobot 換到自架 Kuma **還沒完成**。現況：
-
-- ✅ 部長本機的 Kuma 已經調好（monitor、狀態頁樣式、push monitor）
-- ⬜ 尚未部署到部員的機器，`status.tschoolsu.org` 還不存在
-- ⬜ Discord 通知**刻意還沒勾到 monitor 上**（部長本機一關機會洗頻道），等部員機器上線才勾
-- ⬜ 主機 `backup.env` 的 `BACKUP_HEARTBEAT_URL` 還沒填
-- ⚠️ **UptimeRobot 還在跑，但 `scripts/lib/monitor.mjs` 已經改成讀 Kuma。**
-  所以在部員機器上線之前，`tpass status` 的「== 監控 ==」會顯示「未設定，跳過」。
-  想在本機先看，就把 `deploy/host.env` 的 `KUMA_BASE_URL` 指到本機那台
-  （`http://localhost:3010`）。
-
-**切換順序不可以顛倒**：Kuma 在部員機器上線 → 看門狗跑起來並確認會叫 →
-**才**刪 UptimeRobot 的 monitor。不要在部員按下 `docker compose up` 的同一天關掉。
-
-> 🕰 2026-08-27 的 ONBOARDING 寫著「不要急著關掉 UptimeRobot，至少並行到 Kuma
-> 連續叫對幾次」。**2026-08-28 部長改了這個決定**：Kuma 上線後 UptimeRobot 整個關掉，
-> 由 GitHub Actions 看門狗接手「監控的監控」這個職責。理由是看門狗的帳號在組織底下、
-> 不隨個人畢業，比 UptimeRobot 那個「開在官方信箱」的作法更穩。
+從 UptimeRobot 換到部員自架 Kuma 的進度、切換順序與紅線，**只在 `monitoring/HANDOFF.md` 維護一份**，
+這裡不再抄。`tpass status` 的「== 監控 ==」顯示「未設定，跳過」代表 `deploy/host.env` 的 `KUMA_BASE_URL` 還沒指到上線的 Kuma。
 
 ---
 
@@ -722,6 +680,9 @@ tpass deploy auth                                                    # 4.
 | 登入噴 `invalid_client` | `GOOGLE_CLIENT_ID/SECRET` 貼錯，或兩者不是同一個專案的。`tpass env get auth --show \| grep GOOGLE` 比對 |
 | 登入被 `access_blocked` / 組織政策擋下 | 同意畫面不是「內部」，或登入者不在 `tschool.tp.edu.tw`。見 §6.2 |
 | 本機登入後一直被踢回登入頁 | dev 指令少了 `NODE_TLS_REJECT_UNAUTHORIZED=0`，消費端後端抓不到 auth 的 JWKS（見 §0 的 ⚠️）。log 裡找 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`。**主機上出現這症狀跟 TLS 無關**，去查 `iss` / `aud` |
+| 某服務每 30 秒被重啟一次，`~/.pm2/pm2.log` 有 `exceeds --max-memory-restart value (… max_memory_limit=0)` | pm2 把該 app 的記憶體上限記成 0（2026-09-02 meeting 實例：512M 上限被連砍 5 次後撞上 pm2 內部 race）。`reload` 救不回來：主機上 `cd ~/tpass/deploy && pm2 delete <svc> && pm2 start ecosystem.config.js --only <svc> && pm2 save` |
+| 所有服務同一分鐘出現 `terminating connection due to administrator command`（57P01）／`the database system is shutting down` | PostgreSQL 被重啟，多半是 unattended-upgrades 升了 libpam 等套件（`grep -A5 "Start-Date: $(date +%F)" /var/log/apt/history.log`）。服務會自己重連，不用動；連續發生才查 `systemctl show postgresql@18-main -p ExecMainStartTimestamp` |
+| `tpass deploy` 說「另一個部署正在跑」 | `deploy.sh` 的 `flock`。真的有人在部署就等；確定沒有卻卡住，`scripts/ssh.sh 'rm ~/.tpass-deploy.lock'` |
 | `tpass deploy` 報 git 錯誤 | 主機 `~/tpass` 工作樹不乾淨（主機上不該手改檔案）。`scripts/ssh.sh 'git -C ~/tpass status'` 看 |
 | `tpass deploy` 健康檢查失敗 | `tpass logs <svc>` 看啟動錯誤；最常見是 env 缺值或 DB 連不上 |
 | 部署被擋，說 env 缺 key | 對照該 repo `.env.example`，用 `tpass env set <svc> KEY=VALUE` 補**主機上**的 `.env.local`（真相是 `src/config/*.ts` 的 REQUIRED，見 §4.1） |

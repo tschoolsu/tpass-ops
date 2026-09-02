@@ -38,7 +38,16 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
-      max_memory_restart: "512M",
+      // 1G：2026-09-02 meeting 開會中 RSS 到 562 MB，原本的 512M 讓 pm2 合法砍了它 5 次，
+      // 第 5 次撞上 pm2 內部 race，上限被記成 0 → 之後每 30 秒重啟一次。主機 8 GB、八個 app
+      // 閒置各 ~250 MB，1G 是頭寸不是預算；開會峰值再超過就要查漏，不是再調高。
+      max_memory_restart: "1G",
+      // 預設 1600ms 對 Next 太短：它的 cleanup 等 server.close() 收完所有連線，有 SSE 的服務
+      // 每次都被 SIGKILL（進行中的查詢直接斷）。服務端要配合處理 SIGINT 主動關長連線。
+      kill_timeout: 5000,
+      // ⚠️ 這些選項只在 pm2 第一次建立 app 時生效。有人用 `pm2 restart <svc> --max-memory-restart …`
+      // 之類的 CLI 旗標手改過之後，startOrReload 救不回來——要 `pm2 delete <svc>` 再
+      // `pm2 start ecosystem.config.js --only <svc>` 重建。主機上不要手打 pm2 選項。
       // TPASS_REGISTRY_PATH：服務住 /home/service/<dir>、註冊表住 ~/tpass/tpass-registry，
       // 主機上「../tpass-registry」不再成立（本機仍成立）。由 ops 層在這裡注入絕對路徑，
       // 各服務的程式碼與 .env.local 都不用為主機佈局改一個字。

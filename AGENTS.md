@@ -41,8 +41,8 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `docs/` | ops 文檔 | — | `handbook/`＝**給部員看、手動同步到團隊 HackMD 的四篇**（服務串接指南 / SSO 合約 / Design System / 註冊表 SOP），索引見 `docs/handbook/README.md`。根目錄留 ONBOARDING（開發與維運）/ SECURITY-REVIEW（稽核紀錄）。`docs/specs/` 是跨 repo 功能的實作規格暫存區，不是 ops 文檔。 |
 
 > **git repos**（2026-08-27 核對）：**全部都是 public，包含 `tpass-ops` 本身**（＝頂層）。
-> ⚠️ 這代表 **GitHub Actions 的執行紀錄也是公開的**——部署 log 裡不得出現主機位址
-> （機密一律走 GitHub Secrets，值會被自動遮成 `***`）。
+> ⚠️ 這代表 **GitHub Actions 的執行紀錄也是公開的**（目前只剩 CI 與 kuma-watchdog）——
+> 任何 workflow 的 log 裡都不得出現主機位址。
 > `tpass-registry`、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、
 > `tpass-appeals`、`tpass-notes`、`tpass-meeting`、`tpass-ui`、`tpass-skills`、`tpass-vote` 都在
 > **`tschoolsu` 組織**底下且是 **public**。
@@ -84,43 +84,22 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | **UI 風格 / design system** | `tpass-portal/docs/design.md` | 🟢 權威 |
 | **UI 元件怎麼用**（不要手刻 primitives） | `tpass-ui` repo README | 🟢 權威 |
 | **給部員的 agent 規則**（skill / check.sh） | `tpass-skills` repo README | 🟢 權威 |
+| **資料庫怎麼用**（Prisma 7 樣板、migration、八條準則） | `docs/handbook/01-new-service.md`〈資料庫〉 | 🟢 權威 |
 | **設定怎麼讀**（全 env 驅動） | 各 repo `src/config/*.ts`（REQUIRED 陣列＝env 必填真相） | 🟢 權威 |
 | **產品願景 / 背景需求** | `tpass-portal/docs/PRD.md` | 🟢 v1.1.0 已對齊實作 |
 
 ---
 
-## 3. UI 風格 30 秒速覽（細節一律以 `tpass-portal/docs/design.md` 為準）
+## 3. UI 風格
 
-- **定位**：Playful Tech / Bright Pop Tech。**嚴格 light-only**，白底、糖果色、Neobrutalism。
-- **顏色**：一律 **OKLCH**，禁止 hex / rgb。primary 綠、accent 藍。
-- **字體**：Plus Jakarta Sans（sans/heading）、Geist Mono（badge / 標籤 / code-like）。
-- **Neobrutalism 鐵則**：所有互動元素 = `border-2 border-foreground` + **hard offset shadow**
-  （`shadow-[Xpx_Xpx_0_0_...]`），hover 上移、shadow 變大。**禁止 soft shadow（`shadow-md` 等）。**
-- **禁止**：dark mode / `dark:` 前綴、hex/rgb、無邊框卡片、`shadow-sm/md`、圓角超過 `rounded-2xl`。
-- **元件一律 import 自 `tpass-ui`**（`Button`/`Input`/`Card`/`ConfirmDialog`…），不要手刻 primitives。
+light-only Neobrutalism、OKLCH、元件一律 import 自 `tpass-ui`。規則與 token 只在
+`tpass-portal/docs/design.md` 與 `tpass-skills` 的 `tpass-design` skill 維護，這裡不抄。
 
----
+## 4. 登入串接
 
-## 4. 登入串接 30 秒速覽（細節一律以 `tpass-auth/INTEGRATION.md` 為準）
-
-契約 v2，新服務接 SSO 本質五步（完整版見 `tpass-auth/INTEGRATION.md §12`）：
-
-1. 服務 id 登記：對 `tpass-registry` 開 PR（**就這一處**；auth 白名單與 portal 卡片都從它派生）。
-2. 未登入 → 導去 `…/api/auth/authorize?service=<id>&redirect_uri=<自己的callback>&next=<路徑>`。
-3. 自備 `POST /api/auth/callback`：用 `jose` + JWKS 驗章（**四鐵則**：`algorithms:['EdDSA']`
-   / `issuer` / `audience: 'tpass:<id>'` / `exp`）→ 寫**自己網域的 host-only HttpOnly cookie**。
-4. 每請求後端讀自己的 cookie、同樣四鐵則驗章（`HttpOnly` → 純前端 SPA 接不了，要薄後端）。
-5. 登出：自己的 `POST /api/auth/logout` 清自己 cookie，再鏈到 auth logout。
-
-**所有網址 / id 都是 env 驅動**（`AUTH_AUTHORIZE_URL`、`TPASS_SERVICE_ID`、`JWT_ISSUER`…），
-上線只改 `.env.local`。**永遠不要把網域寫死在程式裡。**
-
-> 🕰 **v1（共用頂層 cookie `tpass_session`、aud `tschool-sso`）已於 2026-07-13 從程式碼中
-> 完全移除**——auth 不再有簽發路徑，消費端不再有 fallback。**不要再寫任何 v1 相關的東西**
-> （`Domain=.<根網域>` 的 cookie、`JWT_AUDIENCE`、`TPASS_COOKIE_NAME`）；若在舊文件或舊
-> 分支看到它們，那是歷史，不是現況。
-
----
+契約 v2：中央發證、per-service token（`aud=tpass:<id>`）、各服務用 `tpass-auth-js` 本地驗章、host-only cookie。
+五步流程與錯誤碼只在 `tpass-auth/INTEGRATION.md`（人類版：`docs/handbook/01-new-service.md`）維護，這裡不抄。
+v1（共用 cookie `tpass_session`、aud `tschool-sso`、`groups` claim）已於 2026-07 全部移除，舊文件看到的是歷史。
 
 ## 5. 給 agent 的鐵律（do / don't）
 
@@ -149,36 +128,28 @@ agent 檢查一律 `pnpm lint` + `pnpm exec tsc --noEmit`（`scripts/tpass check
   `tpass-auth/INTEGRATION.md` §3）；`groups` 已於 2026-07-27 全面移除（不是 deprecated，是
   不存在），token 裡不會再有這個欄位，別再寫或讀 `groups.includes(...)`；
   各服務**不自維護 admin allowlist**——名單在 auth 的 `/admin` panel 管，不是 env、不是 DB。
+- ❌ **資料庫只有一種做法：Prisma 7 + PostgreSQL + migrations**（2026-09-02 事故後定死）。不要 `new Pool()` 當資料存取層、
+  不要在啟動時跑 `CREATE TABLE IF NOT EXISTS`／`ALTER TABLE`、不要 `db push` 上正式、連線字串不要有 fallback。
+  規則與檔案樣板在 `docs/handbook/01-new-service.md`〈資料庫〉。
+- ❌ 主機上不要 `sudo pm2`、不要手打 pm2 選項、不要手跑 `pnpm build`；部署只有本機 `tpass deploy` 一條路。
 - ❌ 不要嘗試自動化 Google 登入（會被擋、違反條款）。要真人登入時**停下來請使用者手動完成**。
 - ❌ 消費端 cookie 不要設 `Domain=.<根網域>`（那是 v1，正在退場）。
 - ✅ UI 一律 light-only Neobrutalism + OKLCH，照 `design.md`。
 
 ---
 
-## 6. 本機跑起來（詳見 `docs/ONBOARDING.md`）
+## 6. 本機跑起來
 
-```bash
-git clone https://github.com/tschoolsu/tpass-registry.git   # 一次性：註冊表必須並排存在，否則 auth/portal 起不來
-scripts/tpass setup    # 一次性：mkcert + pnpm install + 金鑰 + DB（冪等）
-scripts/tpass dev      # 日常：全服務 HTTPS + HMR（SSO 全流程可測）
-scripts/tpass check    # push 前：lint + tsc
-scripts/tpass ui       # 不想打字：本機圖形儀表板
-```
-
-- `lvh.me` 由公共 DNS 解析到 `127.0.0.1`，**免改 `/etc/hosts`**。
-- 真值在各 repo 的 `.env.local`（不進 git）；範本見各 repo `.env.example`；
-  必填清單真相＝`src/config/*.ts` 的 REQUIRED（`tpass check env` 可驗）。
-
----
+`scripts/tpass setup`（一次性）→ `scripts/tpass dev` → push 前 `scripts/tpass check`。細節與排錯在 `docs/ONBOARDING.md`。
 
 ## 7. 部署主機連線（機密，永不進 git）
 
 > ⚠️ 主機位址與帳號是機密，存在 **gitignored 的 `deploy/host.env`**（範本 `host.env.example`）。
 > **絕對不要**把主機 IP / 帳號寫進任何被追蹤的檔案、commit、PR。
 
-- 部署：**首選是 GitHub Actions**——repo 的 Actions 分頁 → `deploy` → Run workflow，
-  輸入服務 id（`all` / `ping` 也可）。任何有 repo 寫入權的人都能按，不需要主機憑證。
-  本機 `scripts/tpass deploy [svc|all]` 保留不動，是那條管道壞掉時的逃生路徑。
+- 部署：**唯一路徑是本機 `scripts/tpass deploy [svc|all]`**（ssh 進主機跑 `deploy/deploy.sh`，
+  主機端有 `flock` 互斥，兩個人同時按會明確失敗而不是互相踩）。
+  GitHub Actions 的部署 workflow **已於 2026-09-02 廢除**（與手動部署並存造成互撞），不要再加回來。
   看狀態 `tpass status`；看 log `tpass logs <svc>`。
 - 進主機：`scripts/ssh.sh`（互動）或 `scripts/ssh.sh '<cmd>'`。
 - **agent 拿不到 root**。維運者本人在主機上有 sudo（要打自己的登入密碼），但 agent 無從代打——
