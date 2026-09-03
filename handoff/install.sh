@@ -16,7 +16,7 @@ OPS_ROOT="${TPASS_OPS_ROOT:-$HOME/tpass}"
 SVC_ROOT="${TPASS_SERVICES_ROOT:-/home/service}"
 REG="$SVC_ROOT/service.json"
 
-# 由這包提供 pm2 設定檔的服務（id:目錄）。這些檔案不在 git 裡，是主機專屬的。
+# 有自己 ecosystem.config.js 的服務（id:目錄）。那個檔跟著服務 repo 進 git。
 OWN="auth:tpass-auth portal:tpass-portal form:tpass-form msg:tpass-cross_grade_messages appeals:tpass-appeals meeting:tpass-meeting"
 # 還沒有自己那份、走 ops 層共用設定的服務
 FALLBACK="notes"
@@ -42,10 +42,6 @@ done
 
 for pair in $OWN; do
   id="${pair%%:*}"; dir="${pair#*:}"
-  # 這包裡該有的
-  [ -f "$HERE/pm2/$dir/ecosystem.config.js" ] || bad "這包裡缺 pm2/$dir/ecosystem.config.js"
-  [ -f "$HERE/pm2/$dir/pm2-start.sh" ]        || bad "這包裡缺 pm2/$dir/pm2-start.sh"
-  # 主機上該有的
   if [ ! -d "$SVC_ROOT/$dir" ]; then bad "${id}：$SVC_ROOT/$dir 不存在（還沒 clone？）"; continue; fi
   [ -d "$SVC_ROOT/$dir/node_modules" ] || warn "${id}：還沒 pnpm install 過"
   [ -d "$SVC_ROOT/$dir/.next" ]        || warn "${id}：還沒 build 過"
@@ -97,38 +93,33 @@ for d in "$SVC_ROOT"/*/; do
   git_try "$name pull" git -C "$d" pull --ff-only
 done
 
-# ── 4. 裝 pm2 設定檔 ────────────────────────────────────────────────────────
-# 這兩個檔是主機專屬的，不在服務 repo 的 git 裡——所以每次改了都要重跑這支腳本。
-step "4. 裝 pm2 設定檔到各服務目錄"
+# ── 4. port 一致性 ──────────────────────────────────────────────────────────
+# 設定檔跟著服務 repo 進 git，所以第 3 步的 pull 之後才驗它們在不在。
+step "4. pm2 設定檔與 port 檢查"
 for pair in $OWN; do
   id="${pair%%:*}"; dir="${pair#*:}"
-  for f in ecosystem.config.js pm2-start.sh; do
-    src="$HERE/pm2/$dir/$f"
-    dst="$SVC_ROOT/$dir/$f"
-    if cmp -s "$src" "$dst" 2>/dev/null; then
-      ok "${id}/${f} 已經是最新"
-    else
-      run cp "$src" "$dst"
-    fi
-  done
-  run chmod +x "$SVC_ROOT/$dir/pm2-start.sh"
+  [ -f "$SVC_ROOT/$dir/ecosystem.config.js" ] || bad "${id}：缺 $SVC_ROOT/$dir/ecosystem.config.js（repo 沒拉到最新？）"
+  if [ -f "$SVC_ROOT/$dir/pm2-start.sh" ]; then
+    [ -x "$SVC_ROOT/$dir/pm2-start.sh" ] || run chmod +x "$SVC_ROOT/$dir/pm2-start.sh"
+  else
+    bad "${id}：缺 $SVC_ROOT/$dir/pm2-start.sh（repo 沒拉到最新？）"
+  fi
 done
+[ "$fail" = 1 ] && { echo; echo "✗ 設定檔沒到位，先把那幾個 repo 拉到最新。"; exit 1; }
 
-# ── 5. port 一致性 ──────────────────────────────────────────────────────────
-step "5. port 一致性檢查（service.json ↔ 各服務的 ecosystem.config.js）"
 for pair in $OWN; do
   id="${pair%%:*}"; dir="${pair#*:}"
   a="$(node -p "const s=require('$HERE/service.json').services.find(x=>x.id==='$id');s?s.port:''" 2>/dev/null)"
-  b="$(node -p "require('$HERE/pm2/$dir/ecosystem.config.js').apps[0].args" 2>/dev/null)"
+  b="$(node -p "require('$SVC_ROOT/$dir/ecosystem.config.js').apps[0].args" 2>/dev/null)"
   if [ "$a" = "$b" ]; then ok "$id → $a"
   else bad "${id}：service.json 寫 $a ，ecosystem.config.js 寫 $b —— 兩邊要一致"; fi
 done
-dups="$(for pair in $OWN; do node -p "require('$HERE/pm2/${pair#*:}/ecosystem.config.js').apps[0].args" 2>/dev/null; done | sort | uniq -d)"
+dups="$(for pair in $OWN; do node -p "require('$SVC_ROOT/${pair#*:}/ecosystem.config.js').apps[0].args" 2>/dev/null; done | sort | uniq -d)"
 [ -n "$dups" ] && bad "有 port 重複：$dups （同一台機器只有第一個起得來）"
 if [ "$fail" = 1 ]; then echo; echo "✗ port 有問題，修掉再跑。"; exit 1; fi
 
-# ── 6. 重建 pm2 app ─────────────────────────────────────────────────────────
-step "6. 重建 pm2 app"
+# ── 5. 重建 pm2 app ─────────────────────────────────────────────────────────
+step "5. 重建 pm2 app"
 echo "   （必須 delete 重建：script / interpreter / env / max_memory_restart"
 echo "     這些欄位 pm2 只在第一次建立 app 時吃，restart 與 reload 都不會套用新值）"
 run pm2 delete all
@@ -146,8 +137,8 @@ for id in $FALLBACK; do
 done
 run pm2 save
 
-# ── 7. 驗收 ─────────────────────────────────────────────────────────────────
-step "7. 驗收"
+# ── 6. 驗收 ─────────────────────────────────────────────────────────────────
+step "6. 驗收"
 if [ "$APPLY" = 1 ]; then
   pm2 list
   echo

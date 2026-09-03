@@ -1,6 +1,6 @@
 # T-Pass 主機 pm2 交接包
 
-主機重建之後，把 pm2 這一層重新裝起來。這包裡有你需要的全部東西。
+主機重建之後，把 pm2 這一層重新裝起來。
 
 **預計時間 15 分鐘。不需要 root**（只有最後一行開機自啟要 sudo，腳本會印給你貼）。
 
@@ -12,12 +12,10 @@
 | --- | --- |
 | `install.sh` | 安裝腳本。先 dry-run 看它要做什麼，再 `--apply` 真跑。 |
 | `service.json` | 服務註冊表。腳本會放到 `/home/service/service.json`。 |
-| `pm2/<服務目錄>/` | 每個服務的 pm2 設定（`ecosystem.config.js` + `pm2-start.sh`）。腳本會放到對應的 `/home/service/<服務目錄>/`。 |
 | `README.md` | 這份。 |
 
-> **`pm2/` 底下那些檔案不在 git 裡**——它們是主機專屬的設定，服務 repo 的
-> `git pull` 拉不到，也不該拉到。**要改就改這包裡的，然後重跑 `install.sh --apply`。**
-> 直接在主機上手改也會生效，但下次拿到新版這包時會被蓋掉，記得同步回來。
+每個服務的 pm2 設定（`ecosystem.config.js` + `pm2-start.sh`）**跟著各自的服務 repo
+進 git**，`git pull` 就有，不在這包裡。這樣改設定有 review、有歷史，下次重建 clone 就有。
 
 ---
 
@@ -54,15 +52,14 @@ cd <這包解開的位置>
 ./install.sh --apply    # 確認沒問題再跑這行
 ```
 
-腳本會依序做七件事，每一步都印出來：
+腳本會依序做六件事，每一步都印出來：
 
 1. 檢查 git / node / pnpm / pm2 和七個服務目錄都在
 2. 把 `service.json` 放到 `/home/service/service.json`（舊的備份成 `.bak`）
 3. 各服務 repo 設好 upstream 並 `git pull`
-4. 把 `pm2/` 底下的設定檔裝到各服務目錄
-5. 檢查 port 沒有衝突、兩邊設定一致
-6. `pm2 delete all` 後逐一重建
-7. `pm2 list` + 逐一 curl 驗收
+4. 確認 pm2 設定檔都到位、port 沒衝突、兩邊設定一致
+5. `pm2 delete all` 後逐一重建
+6. `pm2 list` + 逐一 curl 驗收
 
 跑完它會印出最後一件要你自己做的事（`pm2 startup`，要 sudo）。
 
@@ -74,28 +71,23 @@ cd <這包解開的位置>
 
 跟重建前一樣，nginx 的 upstream 不用改：
 
-| 服務 | port | 網址 |
-| --- | --- | --- |
-| auth | 3000 | auth.tschoolsu.org |
-| portal | 3001 | portal.tschoolsu.org |
-| form | 3002 | form.tschoolsu.org |
-| msg | 3003 | msg.tschoolsu.org |
-| appeals | 3004 | appeals.tschoolsu.org |
-| notes | 3007 | notes.tschoolsu.org |
-| meeting | 3009 | meeting.tschoolsu.org |
-
-`law`（法規系統）不在這裡——它是純前端，跑在 GitHub Pages，主機上沒有它的行程。
+| 服務 | port | | 服務 | port |
+| --- | --- | --- | --- | --- |
+| auth | 3000 | | appeals | 3004 |
+| portal | 3001 | | notes | 3007 |
+| form | 3002 | | meeting | 3009 |
+| msg | 3003 | | law | 不在主機（GitHub Pages） |
 
 要改某個服務的 port，**兩個地方要一起改**，否則 `install.sh` 第 4 步會擋下來：
 
 1. `/home/service/service.json` 的 `port`
-2. 該服務目錄的 `ecosystem.config.js` 裡的 port
+2. 該服務 repo 的 `ecosystem.config.js`（要 commit）
 
 ---
 
 ## 裝完之後，平常會怎麼運作
 
-裝完之後每個服務目錄底下會多兩個檔案（`git status` 看得到它們是 untracked，正常）：
+每個服務目錄底下有兩個檔案（都在 git 裡）：
 
 - `ecosystem.config.js` — 這個服務的 pm2 設定（名稱、port、記憶體上限）
 - `pm2-start.sh` — pm2 每次啟動它的時候真正跑的東西
@@ -129,8 +121,28 @@ pm2 啟動 xxx
 - 關閉時給 **5 秒**收尾（會議系統的即時連線需要，不然每次都被硬砍）
 - log 輪替不用管，部署腳本會自動裝好
 
+### 要臨時調參數救火時
+
+**不要手改 `ecosystem.config.js`**——下次 `tpass deploy` 會把它沖掉。用 env：
+
+```bash
+cd /home/service/tpass-meeting
+pm2 delete meeting
+PM2_MAX_MEMORY=2G pm2 start ecosystem.config.js     # 記憶體門檻臨時放寬
+pm2 save
+```
+
+| env | 改什麼 | 預設 |
+| --- | --- | --- |
+| `PORT` | 監聽的 port | 各服務不同，見上表 |
+| `PM2_MAX_MEMORY` | pm2 的記憶體重啟門檻 | `1G` |
+| `NODE_HEAP_MB` | V8 的 heap 上限（MB） | `384` |
+
+臨時措施有效之後，記得回頭把值改進 `ecosystem.config.js` 並 commit，
+不然下次重建又回到原點。
+
 > ⚠️ 改過 `ecosystem.config.js` 之後，`pm2 restart` 和 `pm2 reload` **不會套用新設定**。
-> 要 `pm2 delete <服務名>` 再 `pm2 start ecosystem.config.js`，最後 `pm2 save`。
+> 一定要 `pm2 delete <服務名>` 再 `pm2 start ecosystem.config.js`，最後 `pm2 save`。
 > 重跑 `install.sh --apply` 會幫你做掉這一整套。
 
 ---
@@ -158,8 +170,8 @@ pm2 describe <服務名>          # 看它實際跑的 script、cwd、記憶體�
 
 ## 這些事我沒做完，要你決定
 
-1. **`notes`（共編筆記）沒有自己的設定檔**，走的是舊的共用設定。它也是唯一還在用舊寫法
-   接資料庫的服務，去留還沒定案。決定下架的話：把 `service.json` 裡 notes 的
+1. **`notes`（共編筆記）沒有自己的設定檔**，走的是 ops 層的共用設定。它也是唯一還在用
+   舊寫法接資料庫的服務，去留還沒定案。決定下架的話：把 `service.json` 裡 notes 的
    `deployed` 改成 `false`，然後 `pm2 delete notes && pm2 save`。
 
 2. **`/home/service/service.json` 現在沒有任何把關。** 以前這份清單放在 GitHub 上，
@@ -167,11 +179,7 @@ pm2 describe <服務名>          # 看它實際跑的 script、cwd、記憶體�
    **手改它就等於直接改線上的登入白名單，沒有紀錄也沒人審**。改之前先想清楚，
    改完要重新部署 auth 和 portal 才會生效。
 
-3. **`.next.prev` 這個目錄**。build 失敗時 `pm2-start.sh` 會用它來退回上一版，
-   正常情況下用完就刪。它不在任何 `.gitignore` 裡，所以萬一殘留，
-   `git status` 會看到它——直接刪掉沒關係。
-
-4. **全部沒有在真主機上跑過。** 主機的 SSH 指紋變了，我這邊連不進去。
+3. **全部沒有在真主機上跑過。** 主機的 SSH 指紋變了，我這邊連不進去。
    `pm2-start.sh` 的三種情況（不用 build / build 成功 / build 失敗回滾）
-   我用假的 repo 在本機測過都正確，但 pm2 本身沒有實機驗證。
+   和 `install.sh` 的每條路徑我都在本機用假環境測過，但 pm2 本身沒有實機驗證。
    所以請先跑 dry-run，有任何一行看起來不對就先別 `--apply`。
