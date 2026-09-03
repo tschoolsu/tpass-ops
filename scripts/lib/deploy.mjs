@@ -61,12 +61,13 @@ export function deploy(target = "all") {
   console.log(`▶ 部署 ${ids.join(", ")}（主機端：git pull ops → deploy.sh）`);
   // ops repo 先自我更新（deploy.sh / ecosystem 吃最新 main），再執行 deploy.sh
   // ——自我更新發生在腳本被 bash 載入之前，避免改到執行中的檔案。
-  // 註冊表（tpass-registry）由 deploy.sh 自己 pull，不在這裡處理。
+  // 註冊表由 deploy.sh 自己處理（主機裸檔就直接讀，repo 模式才 pull），不在這裡碰。
   const r = ssh(`cd ${hostOpsRoot} && git pull --ff-only && ./deploy/deploy.sh ${target}`);
   if (r.status !== 0) {
     console.error(`\n✗ 部署失敗（exit ${r.status}）。`);
     console.error(
-      `  若錯誤是 git 相關：主機的 ${hostOpsRoot}、${hostOpsRoot}/tpass-registry 或 ${hostServicesRoot}/<dir> 可能還沒 clone —— 見 docs/ONBOARDING.md §5。`,
+      `  若錯誤是 git 相關：主機的 ${hostOpsRoot} 或 ${hostServicesRoot}/<dir> 可能還沒 clone，` +
+        `或 ${hostServicesRoot}/service.json 不存在 —— 見 docs/ONBOARDING.md §5。`,
     );
     process.exit(r.status);
   }

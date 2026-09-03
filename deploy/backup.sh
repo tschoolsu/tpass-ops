@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 伺服器上的每日備份腳本。放在 ~/tpass/deploy/（與 deploy.sh 同層，同樣的路徑約定）。
 #
-# 備份什麼（全部從 ../tpass-registry/services.json 派生，不得在此硬編碼服務名）：
+# 備份什麼（全部從服務註冊表派生，不得在此硬編碼服務名；註冊表位置見下面的 REG）：
 #   1. 每個 enabled 且 db != null 的服務 → pg_dump（custom format，已壓縮）
 #   2. 每個 enabled 服務的 <dir>/data/ 與 <dir>/uploads/（存在且非空才打包）
 #      ——這是通用規則不是為某個服務開的特例：任何把狀態寫在這兩個目錄之一的服務
@@ -26,7 +26,10 @@ export PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
-REG="$ROOT/tpass-registry/services.json"
+# 註冊表兩種佈局：主機（重建後）是 /home/service/service.json 裸檔，本機/舊主機是並排的
+# tpass-registry repo。有裸檔以裸檔為準。TPASS_REGISTRY_FILE 是逃生門。
+REG="${TPASS_REGISTRY_FILE:-/home/service/service.json}"
+[ -f "$REG" ] || REG="$ROOT/tpass-registry/services.json"
 CONF="$SCRIPT_DIR/backup.env"
 STATUS_FILE="$HOME/.tpass-backup-status"
 LOG="$HOME/tpass-backup.log"

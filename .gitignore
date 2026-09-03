@@ -17,6 +17,7 @@
 !/deploy/
 !/docs/
 !/monitoring/
+!/handoff/
 
 # --- monitoring/data/ = Kuma 的 SQLite（含 Discord webhook 明文與 admin 密碼 hash）。
 # tpass-ops 是 public repo，這包只能私下傳給部員，永遠不進 git。---

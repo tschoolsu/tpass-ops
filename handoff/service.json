@@ -1,0 +1,215 @@
+{
+  "$comment": "T-Pass 服務註冊表——主機上的唯一真相，住 /home/service/service.json。格式與 tpass-registry/services.json 完全相同；auth / portal / deploy.sh / backup.sh 都讀它。改這份檔案後要重新部署 auth 與 portal 才會生效。",
+  "issuer": "auth",
+  "domains": {
+    "dev": "lvh.me",
+    "prod": "tschoolsu.org"
+  },
+  "server": {
+    "$comment": "主機路徑約定。ops repo（deploy.sh / 這份說明）住 opsRoot；各服務 repo 一律是 servicesRoot/<dir>，一個服務一層。註冊表本身住 servicesRoot/service.json。",
+    "opsRoot": "~/tpass",
+    "servicesRoot": "/home/service"
+  },
+  "services": [
+    {
+      "id": "auth",
+      "name": "T-Pass SSO 發證",
+      "dir": "tpass-auth",
+      "subdomain": "auth",
+      "port": 3000,
+      "db": {
+        "name": "t_auth",
+        "user": "t_auth",
+        "strategy": "migrate"
+      },
+      "enabled": true,
+      "deployed": true
+    },
+    {
+      "id": "portal",
+      "name": "T-Portal 門戶",
+      "dir": "tpass-portal",
+      "subdomain": "portal",
+      "port": 3001,
+      "db": null,
+      "enabled": true,
+      "deployed": true
+    },
+    {
+      "id": "form",
+      "name": "T-Form 問卷",
+      "dir": "tpass-form",
+      "subdomain": "form",
+      "port": 3002,
+      "db": {
+        "name": "t_form",
+        "user": "t_form",
+        "strategy": "migrate"
+      },
+      "enabled": true,
+      "deployed": true,
+      "portal": {
+        "label": "問卷系統",
+        "icon": "ClipboardList",
+        "tone": "violet",
+        "category": "service"
+      }
+    },
+    {
+      "id": "msg",
+      "name": "T-Msg 跨屆代傳",
+      "dir": "tpass-cross_grade_messages",
+      "subdomain": "msg",
+      "port": 3003,
+      "db": {
+        "name": "t_msg",
+        "user": "t_msg",
+        "strategy": "migrate"
+      },
+      "enabled": true,
+      "deployed": true,
+      "portal": {
+        "label": "跨屆代傳",
+        "icon": "MessagesSquare",
+        "tone": "blue",
+        "category": "service"
+      }
+    },
+    {
+      "id": "appeals",
+      "name": "T-Appeals 申訴",
+      "dir": "tpass-appeals",
+      "subdomain": "appeals",
+      "port": 3004,
+      "db": {
+        "name": "t_appeals",
+        "user": "t_appeals",
+        "strategy": "migrate"
+      },
+      "enabled": true,
+      "deployed": true,
+      "portal": {
+        "label": "申訴系統",
+        "icon": "Gavel",
+        "tone": "rose",
+        "category": "service"
+      }
+    },
+    {
+      "id": "directory",
+      "name": "T-Directory 目錄（封存）",
+      "dir": "tpass-directory",
+      "subdomain": "directory",
+      "port": 3005,
+      "db": {
+        "name": "t_directory",
+        "user": "t_directory",
+        "strategy": "push"
+      },
+      "enabled": false,
+      "deployed": false,
+      "note": "2026-07-05 封存；port 由 3004 移至 3005 解決與 appeals 撞車"
+    },
+    {
+      "id": "notes",
+      "name": "T-Notes 學術部共編筆記",
+      "dir": "tpass-notes",
+      "subdomain": "notes",
+      "port": 3007,
+      "db": {
+        "name": "t_notes",
+        "user": "t_notes",
+        "strategy": "none"
+      },
+      "enabled": true,
+      "deployed": true,
+      "note": "2026-08-03 納管，2026-08-26 上線。repo tschoolsu/tpass-notes（原在 Ray1020-a 底下，已轉移）。不是 Prisma，用 pg + POSTGRES_URL，schema 由服務自己 CREATE TABLE IF NOT EXISTS，故 strategy:none。狀態檔放 uploads/ 而非慣例的 data/，backup.sh 兩者都收。尚未照慣例的部分：沒有 src/config 的 REQUIRED（deploy.sh 的 env 檢查對它是空的）、沒有 error.tsx。 2026-09-03：唯一沒有自己 ecosystem.config.js 的 pm2 服務，走 ops 層 deploy/ecosystem.config.js fallback。",
+      "portal": {
+        "label": "共編筆記",
+        "icon": "BookOpen",
+        "tone": "green",
+        "category": "service"
+      }
+    },
+    {
+      "id": "vote",
+      "name": "T-Vote 選舉",
+      "dir": "tpass-vote",
+      "subdomain": "vote",
+      "port": 3006,
+      "db": {
+        "name": "t_vote",
+        "user": "t_vote",
+        "strategy": "migrate"
+      },
+      "enabled": true,
+      "deployed": false,
+      "portal": {
+        "label": "T-Vote 選舉",
+        "icon": "Vote",
+        "tone": "orange",
+        "category": "governance"
+      }
+    },
+    {
+      "id": "buddy",
+      "name": "直屬配對（T-Buddy）",
+      "dir": "tpass-buddy",
+      "subdomain": "buddy",
+      "port": 3008,
+      "db": null,
+      "enabled": false,
+      "deployed": false,
+      "note": "2026-09-02 活動結束封存；下次啟用預計 2027 年直屬活動。115 直屬活動限定的臨時服務，repo 在 YC815/tpass-buddy（不在 tschoolsu 組織）。無資料庫：配對資料是 gitignored 的 data/pairs.json，由服務自己的 pnpm push:data 經 ssh 送上主機，deploy.sh 不碰它。2026-08-22 曾短暫移出大廳（怕提前看到直屬），同日改成現場相認才揭曉後放回。翻 false 不會讓主機上的 pm2 app 停掉（deploy.sh 只遍歷 deployed:true，沒有孤兒回收），封存時要另外 pm2 delete buddy && pm2 save。id/port/subdomain 保留不回收。"
+    },
+    {
+      "id": "meeting",
+      "name": "T-Meeting 會議輔助",
+      "dir": "tpass-meeting",
+      "subdomain": "meeting",
+      "port": 3009,
+      "db": {
+        "name": "t_meeting",
+        "user": "t_meeting",
+        "strategy": "migrate"
+      },
+      "enabled": true,
+      "deployed": true,
+      "note": "2026-08-26 納管、2026-09-01 上線。repo tschoolsu/tpass-meeting（原名 meeting-support）。不是 Prisma，用 pg + POSTGRES_URL，故 strategy:none；schema 由服務自己 CREATE TABLE IF NOT EXISTS。程式碼已對齊生態系（tpass-ui、tpass-auth-js、env 全走 config/*.ts、pnpm、CI）；self url 的 env 是 MEETING_SELF_URL。tone 與尚未上線的 vote 同為 orange，vote 進大廳前要擇一改色。",
+      "portal": {
+        "label": "會議輔助",
+        "icon": "CalendarCheck",
+        "tone": "orange",
+        "category": "governance"
+      }
+    },
+    {
+      "id": "law",
+      "name": "T-Law 法規系統",
+      "dir": "tpass-regulatory",
+      "subdomain": "law",
+      "port": null,
+      "hosting": "external",
+      "db": null,
+      "enabled": true,
+      "deployed": true,
+      "note": "2026-08-30 納管上線。純前端 Vite SPA，公開查閱學生會章程/校規/行政要點，刻意不接 SSO（純前端 SPA 接不了：token 是 HttpOnly cookie，驗章要後端做，見 tpass-auth/INTEGRATION.md §6）。部署在 GitHub Pages（repo 自己的 .github/workflows/deploy.yml），law.tschoolsu.org 由 Cloudflare CNAME（灰雲）指到 GitHub Pages，不歸主機 pm2 管、deploy.sh 跳過它。port 留 null：hosting=external 沒有行程在聽，非 null 的 port 會被 tpass status 誤判成掛掉的服務。",
+      "portal": {
+        "label": "法規系統",
+        "icon": "Scale",
+        "tone": "blue",
+        "category": "governance"
+      }
+    },
+    {
+      "id": "schedule",
+      "name": "課表拉取工具",
+      "dir": "home",
+      "subdomain": "schedule",
+      "port": 30001,
+      "db": null,
+      "enabled": true,
+      "deployed": false
+    }
+  ]
+}

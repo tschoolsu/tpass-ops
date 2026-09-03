@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # 伺服器上的部署腳本。放在 ~/tpass/deploy/（~/tpass = tpass-ops repo clone，註冊表與它同層）。
 # 各服務 repo 住 registry 的 server.servicesRoot 底下（＝ /home/service/<dir>，一個服務一層）。
-# 服務清單 / 目錄 / DB 策略全部來自 ../tpass-registry/services.json（唯一真相），不得在此硬編碼。
-# 註冊表是並排的 public repo，每次部署前先 pull——主機只認 tpass-registry main 的最新版。
+# 服務清單 / 目錄 / DB 策略全部來自服務註冊表（唯一真相），不得在此硬編碼。
+# 註冊表兩種佈局，見下面 REG_STANDALONE：主機是 /home/service/service.json 裸檔（不 pull），
+# 本機 / 舊主機是並排的 public repo tpass-registry（部署前 fetch + reset 到 main）。
 # 對指定服務： git pull →（鎖檔變動才）pnpm install --frozen-lockfile → prisma generate →
 #              pnpm run build → 依 db.strategy 套 schema → pm2 startOrReload（zero-downtime；新服務自動首啟）。
 # 用法： deploy.sh [<svc>|all]   （預設 all = services.json 中 deployed:true 者）
@@ -26,32 +27,44 @@ command -v pnpm >/dev/null 2>&1 || {
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
+# 註冊表有兩種佈局：
+#   1. 主機（重建後）：/home/service/service.json——一個裸檔，維運組直接維護，沒有 git。
+#   2. 本機 / 舊主機：並排 clone 的 public repo tpass-registry，內容由 PR 決定。
+# 有裸檔就以裸檔為準；沒有才退回 repo 模式。TPASS_REGISTRY_FILE 是逃生門。
+REG_STANDALONE="${TPASS_REGISTRY_FILE:-/home/service/service.json}"
 REG_DIR="$ROOT/tpass-registry"
-REG="$REG_DIR/services.json"
 
-if [ ! -d "$REG_DIR/.git" ]; then
-  echo "❌ 找不到服務註冊表 $REG_DIR" >&2
-  echo "   註冊表是並排的 public repo，先 clone 一次：" >&2
-  echo "     git -C $ROOT clone https://github.com/tschoolsu/tpass-registry.git" >&2
-  exit 1
-fi
-
-# 主機這份 tpass-registry 是 origin/main 的唯讀快取，不是工作區：
-# 要改註冊表就去 GitHub 開 PR，在主機上手改一律無效，下次部署一定被沖掉。
-# 所以是 fetch + reset --hard，不是 pull --ff-only —— pull 遇到髒工作區會失敗，
-# 整條管道從第一步就死；而在它死之前，線上發證白名單跑的是那份沒進 git 的手改版。
-# reset 讓狀態只剩一種：main 是什麼，主機就是什麼。
-# 加服務 / 翻 deployed 只要 merge 進 tpass-registry，不必改 ops、portal、auth 任何一行。
 echo "==================== registry ===================="
-git -C "$REG_DIR" fetch --quiet origin
-# 沖掉之前先把漂移印出來：手改的內容本身可能有價值（例：某人在主機上翻了 deployed
-# 卻沒開 PR），無聲抹掉就再也查不出是誰改了什麼。多這幾行換得可追查，划算。
-if ! git -C "$REG_DIR" diff --quiet origin/main --; then
-  echo "⚠️  主機副本與 origin/main 不一致，以下本地改動即將被沖掉（要保留就回 GitHub 開 PR）："
-  git -C "$REG_DIR" --no-pager diff origin/main -- | sed 's/^/   /'
+if [ -f "$REG_STANDALONE" ]; then
+  REG="$REG_STANDALONE"
+  # ⚠️ 裸檔模式沒有 PR review、沒有 validate.mjs、沒有版本歷史：手改這個檔就是直接改
+  #    線上的發證白名單。改完務必 `deploy.sh all` 讓 auth/portal 重新 build。
+  echo "註冊表：$REG（裸檔模式，不從 git 同步）"
+else
+  if [ ! -d "$REG_DIR/.git" ]; then
+    echo "❌ 找不到服務註冊表" >&2
+    echo "   要嘛放一份裸檔在 $REG_STANDALONE，" >&2
+    echo "   要嘛把並排的 public repo clone 一次：" >&2
+    echo "     git -C $ROOT clone https://github.com/tschoolsu/tpass-registry.git" >&2
+    exit 1
+  fi
+  REG="$REG_DIR/services.json"
+  # 主機這份 tpass-registry 是 origin/main 的唯讀快取，不是工作區：
+  # 要改註冊表就去 GitHub 開 PR，在主機上手改一律無效，下次部署一定被沖掉。
+  # 所以是 fetch + reset --hard，不是 pull --ff-only —— pull 遇到髒工作區會失敗，
+  # 整條管道從第一步就死；而在它死之前，線上發證白名單跑的是那份沒進 git 的手改版。
+  # reset 讓狀態只剩一種：main 是什麼，主機就是什麼。
+  # 加服務 / 翻 deployed 只要 merge 進 tpass-registry，不必改 ops、portal、auth 任何一行。
+  git -C "$REG_DIR" fetch --quiet origin
+  # 沖掉之前先把漂移印出來：手改的內容本身可能有價值（例：某人在主機上翻了 deployed
+  # 卻沒開 PR），無聲抹掉就再也查不出是誰改了什麼。多這幾行換得可追查，划算。
+  if ! git -C "$REG_DIR" diff --quiet origin/main --; then
+    echo "⚠️  主機副本與 origin/main 不一致，以下本地改動即將被沖掉（要保留就回 GitHub 開 PR）："
+    git -C "$REG_DIR" --no-pager diff origin/main -- | sed 's/^/   /'
+  fi
+  git -C "$REG_DIR" reset --hard origin/main
+  node "$REG_DIR/validate.mjs"
 fi
-git -C "$REG_DIR" reset --hard origin/main
-node "$REG_DIR/validate.mjs"
 
 [ -f "$REG" ] || { echo "❌ 找不到 $REG" >&2; exit 1; }
 
@@ -242,11 +255,27 @@ deploy_one() {
       ;;
   esac
 
+  # pm2 設定檔：各服務 repo 根目錄那份優先（2026-09-03 起的做法，port 由它自己決定）；
+  # 還沒有自己那份的 repo（目前只有 notes）退回 ops 層這份 fallback。
+  eco="$dir/ecosystem.config.js"
+  start_script="$dir/pm2-start.sh"
+  if [ ! -f "$eco" ]; then
+    eco="$SCRIPT_DIR/ecosystem.config.js"
+    start_script="$SCRIPT_DIR/start-service.sh"
+    echo "   ⚠️  $dir 沒有自己的 ecosystem.config.js → 用 ops 層 fallback"
+  fi
+
   # startOrReload：既有 app zero-downtime reload；registry 新增的服務自動首次啟動。
   # 例外：pm2 reload 不會套用 ecosystem.config.js 改過的 script 路徑——程序還掛在
-  # npm 時代的 .bin/next（shell shim，pm2 當 JS require 會炸）時，得 delete 重建（一次性）。
-  if pm2 describe "$s" 2>/dev/null | grep -q 'node_modules/\.bin/next'; then
-    echo "   pm2 程序還掛在舊 script 路徑（.bin/next）→ delete + start（一次性重建）"
+  # 舊入口（npm 時代的 .bin/next、或搬家前的 ops 層 start-service.sh）時，只 reload
+  # 會安靜地繼續跑舊的那支。script 不符就 delete 重建（一次性）。
+  cur_script="$(pm2 jlist 2>/dev/null | node -e "
+let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+  try { const a=JSON.parse(d).find(p=>p.name===process.argv[1]); console.log(a?a.pm2_env.pm_exec_path:''); }
+  catch { console.log(''); }
+})" "$s" || true)"
+  if [ -n "$cur_script" ] && [ "$cur_script" != "$start_script" ]; then
+    echo "   pm2 程序的 script 是 $cur_script，應為 $start_script → delete + start（重建）"
     pm2 delete "$s"
   fi
   # reload 不會搬 cwd：程序還跑在舊目錄（例：搬去 $SVC_ROOT 之前的 ~/tpass/<dir>）時，
@@ -260,7 +289,7 @@ let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
     echo "   pm2 程序的 cwd 是 $cur_cwd，應為 $dir → delete + start（重建）"
     pm2 delete "$s"
   fi
-  pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.js" --only "$s" --update-env
+  pm2 startOrReload "$eco" --only "$s" --update-env
   health_check "$s" "$(svc_port "$s")"
   echo "   ✅ $s 部署完成"
 }
