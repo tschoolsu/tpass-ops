@@ -16,10 +16,8 @@ OPS_ROOT="${TPASS_OPS_ROOT:-$HOME/tpass}"
 SVC_ROOT="${TPASS_SERVICES_ROOT:-/home/service}"
 REG="$SVC_ROOT/service.json"
 
-# 有自己 ecosystem.config.js 的服務（id:目錄）。那個檔跟著服務 repo 進 git。
+# 服務（id:目錄）。每個 repo 根目錄自帶 ecosystem.config.js，跟著 repo 進 git。
 OWN="auth:tpass-auth portal:tpass-portal form:tpass-form msg:tpass-cross_grade_messages appeals:tpass-appeals meeting:tpass-meeting"
-# 還沒有自己那份、走 ops 層共用設定的服務
-FALLBACK="notes"
 
 fail=0
 step() { echo; echo "── $* ──────────────────────────────────"; }
@@ -46,9 +44,6 @@ for pair in $OWN; do
   [ -d "$SVC_ROOT/$dir/node_modules" ] || warn "${id}：還沒 pnpm install 過"
   [ -d "$SVC_ROOT/$dir/.next" ]        || warn "${id}：還沒 build 過"
 done
-for id in $FALLBACK; do
-  [ -f "$OPS_ROOT/deploy/ecosystem.config.js" ] || bad "找不到 ops 層共用設定（$id 要用）"
-done
 
 if [ "$fail" = 1 ]; then
   echo; echo "✗ 前置檢查沒過，先把上面的 ✗ 修掉再跑。"; exit 1
@@ -68,7 +63,7 @@ else
 fi
 
 # ── 3. 各服務 repo：設 upstream + pull ──────────────────────────────────────
-# git 失敗只警告不中斷：pm2-start.sh 每次啟動還會再 pull 一次，這裡不是最後機會。
+# git 失敗只警告不中斷：這裡只是讓工作區跟上 origin，正式換版本仍是 tpass deploy。
 # 輸出收在變數裡，成功印一行、失敗才把原因攤開——否則七個 repo 的 git 噪音會淹掉重點。
 step "3. 各服務 repo 設 upstream 並拉最新"
 git_try() {
@@ -99,11 +94,6 @@ step "4. pm2 設定檔與 port 檢查"
 for pair in $OWN; do
   id="${pair%%:*}"; dir="${pair#*:}"
   [ -f "$SVC_ROOT/$dir/ecosystem.config.js" ] || bad "${id}：缺 $SVC_ROOT/$dir/ecosystem.config.js（repo 沒拉到最新？）"
-  if [ -f "$SVC_ROOT/$dir/pm2-start.sh" ]; then
-    [ -x "$SVC_ROOT/$dir/pm2-start.sh" ] || run chmod +x "$SVC_ROOT/$dir/pm2-start.sh"
-  else
-    bad "${id}：缺 $SVC_ROOT/$dir/pm2-start.sh（repo 沒拉到最新？）"
-  fi
 done
 [ "$fail" = 1 ] && { echo; echo "✗ 設定檔沒到位，先把那幾個 repo 拉到最新。"; exit 1; }
 
@@ -131,9 +121,6 @@ for pair in $OWN; do
   else
     echo "   (dry-run) cd $dir && pm2 start ecosystem.config.js"
   fi
-done
-for id in $FALLBACK; do
-  run pm2 start "$OPS_ROOT/deploy/ecosystem.config.js" --only "$id"
 done
 run pm2 save
 
@@ -172,7 +159,7 @@ if [ "$APPLY" = 1 ]; then
     echo "  先看 pm2 logs <服務名> --lines 100 找原因，修好後 pm2 restart <服務名>。"
     exit 1
   fi
-  echo "✓ 裝完了，七個服務都活著。"
+  echo "✓ 裝完了，六個服務都活著。"
 else
   echo "以上是 dry-run。確認沒問題就跑： ./install.sh --apply"
 fi

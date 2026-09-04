@@ -27,12 +27,11 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 | `tpass-form/` | 問卷系統（T-Form） | `https://form.lvh.me:3002` | 問卷建構/填寫/匯出，PostgreSQL+Prisma。 |
 | `tpass-cross_grade_messages/` | 跨屆代傳（T-Msg） | `https://msg.lvh.me:3003` | 訊息廣播到 Google Chat webhook，PostgreSQL+Prisma。 |
 | `tpass-appeals/` | 申訴系統（T-Appeals） | `https://appeals.lvh.me:3004` | 申訴收件 + Discord 通知，PostgreSQL+Prisma。 |
-| `tpass-notes/` | 共編筆記（T-Notes） | `https://notes.lvh.me:3007` | 學術部共編筆記。**全生態唯一還在 `pg` 直連 + 啟動時 `CREATE TABLE IF NOT EXISTS` + 手抄驗章的服務**（註冊表 `strategy:"none"`），違反 2026-09-02 資料庫準則，去留待 2026-09-02 晚間會議決定；留就遷 Prisma 7 + `tpass-auth-js`。 |
 | `tpass-buddy/` | 直屬配對（T-Buddy） | `https://buddy.lvh.me:3008` | 115 直屬活動限定的臨時服務，無資料庫（狀態是 gitignored 的 `data/pairs.json`）。活動結束就下架。 |
 | `tpass-meeting/` | 會議輔助（T-Meeting） | `https://meeting.lvh.me:3009` | 會議記錄/簽到/表決/即時投屏 + API key。**沒有 `src/`**（`app/`、`lib/`、`config/` 在根目錄）。2026-09-02 從 `pg` 直連遷到 **Prisma 7 + migrations**（`0_init` baseline，主機首次部署前要 `prisma migrate resolve --applied 0_init`）；SSE 在 SIGINT 時主動關閉。self url env `MEETING_SELF_URL`。 |
 | `tpass-vote/` | 選舉系統（T-Vote） | `https://vote.lvh.me:3006` | 開發中，尚未上線（註冊表 `deployed:false`）。設計決策見 memory。 |
 | `tpass-directory/` | 目錄服務 | — | **2026-07-05 封存**，不部署；留作參考。 |
-| `tpass-auth-js/` | **驗章共用套件** | — | **public repo**，並排 clone（非必要——各服務是用 git URL 安裝它，不是相對路徑）。消費端的驗章四鐵則、callback/logout route handler 都在這裡，有 27 個測試守著。**2026-08-27 起 portal/form/msg/appeals/vote/buddy 六個消費端都吃它，2026-09-01 meeting 也遷過去（只剩 notes 還是手抄），不要再在服務裡手抄 `lib/tpass-auth.ts`。** |
+| `tpass-auth-js/` | **驗章共用套件** | — | **public repo**，並排 clone（非必要——各服務是用 git URL 安裝它，不是相對路徑）。消費端的驗章四鐵則、callback/logout route handler 都在這裡，有 27 個測試守著。**2026-08-27 起 portal/form/msg/appeals/vote/buddy 六個消費端都吃它，2026-09-01 meeting 也遷過去，不要再在服務裡手抄 `lib/tpass-auth.ts`。** |
 | `tpass-ui/` | **UI 元件共用套件** | — | **public repo**（v1.0.1），並排 clone（非必要——git URL 安裝：`pnpm add github:tschoolsu/tpass-ui#v1.0.1`）。匯出 `cn/Button/Input/Textarea/Select/Card/Badge/Label/Switch/ConfirmDialog` + `tpass-ui/theme.css`。消費端 `globals.css` 改 `@import "tailwindcss"; @import "tpass-ui/theme.css"; @source "../../node_modules/tpass-ui/dist";`（Tailwind v4 預設不掃 node_modules，`@source` 必加）。`dist/` 進 git、CI 守同步，跟 `tpass-auth-js` 同一套模式。**2026-08-29 起 form/appeals/msg/vote 四個消費端吃它、2026-09-01 meeting 也吃它，不要再在服務裡手刻 `src/components/ui/primitives.tsx`。** |
 | `tpass-skills/` | **給部員的 Claude Code plugin** | — | **public repo**，同時是 marketplace。三個 skill：`tpass-design`、`tpass-auth`、`tpass-service`，加 `scripts/check.sh`（grep 檢查 hex/rgb/dark:/soft shadow/圓角、手抄驗章、groups、cookie Domain、v1 遺物、硬編碼網域、npm/yarn 鎖檔；消費端限定）。部員安裝：`/plugin marketplace add tschoolsu/tpass-skills` → `/plugin install tpass@tpass-skills`。細節見該 repo README。 |
 | `tpass-registry/` | **服務註冊表（唯一真相）** | — | **public repo**，並排 clone。id/目錄/子網域/port/DB 策略/大廳卡片全在 `services.json`；auth 白名單、portal 卡片、pm2、deploy 全部從它派生，**不得另行硬編碼**。 |
@@ -44,18 +43,18 @@ auth 用私鑰簽 EdDSA JWT（每服務一個 `aud=tpass:<id>`），各服務只
 > ⚠️ 這代表 **GitHub Actions 的執行紀錄也是公開的**（目前只剩 CI 與 kuma-watchdog）——
 > 任何 workflow 的 log 裡都不得出現主機位址。
 > `tpass-registry`、`tpass-auth`、`tpass-portal`、`tpass-form`、`tpass-cross_grade_messages`、
-> `tpass-appeals`、`tpass-notes`、`tpass-meeting`、`tpass-ui`、`tpass-skills`、`tpass-vote` 都在
+> `tpass-appeals`、`tpass-meeting`、`tpass-ui`、`tpass-skills`、`tpass-vote` 都在
 > **`tschoolsu` 組織**底下且是 **public**。
 > `tpass-buddy` 在 **`YC815`** 個人帳號底下（臨時服務，未轉移）。
 > `tpass-directory`（封存）**尚未有 GitHub repo**，只存在於本機。
-> ⚠️ `tpass-notes` 與 `tpass-meeting` 是直接在主機上開發出來的，**本機預設沒有 clone**；
+> ⚠️ `tpass-meeting` 是直接在主機上開發出來的，**本機預設沒有 clone**；
 > 主機上各服務的 `origin` 多半還指著轉移前的舊擁有者（靠 GitHub 轉址在動）。
 > **本機**：全部並排在同一層（`tpass-registry` 與各服務同層），auth / portal 靠
 > `../tpass-registry/services.json` 這條相對路徑找註冊表。
 > **主機**（2026-08-03 起分岔）：ops repo + `tpass-registry` 在 `~/tpass`，**各服務 repo 一律在
-> `/home/service/<dir>`，一個服務一層，那層不放別的東西**。主機上相對路徑不成立，改由 ops 層注入
-> 絕對路徑 `TPASS_REGISTRY_PATH`（`ecosystem.config.js` 的 env 管 runtime、`deploy.sh` 的 export 管 build），
-> 服務程式碼與 `.env.local` 都不必為此改動。兩條路徑的真相＝`tpass-registry/services.json` 的
+> `/home/service/<dir>`，一個服務一層，那層不放別的東西**。主機上相對路徑不成立，auth / portal 的
+> `src/lib/registry.ts` 會自己找 `/home/service/service.json` 裸檔（`TPASS_REGISTRY_PATH` 只是逃生門，
+> `deploy.sh` build 時會 export 它），服務程式碼與 `.env.local` 都不必為此改動。兩條路徑的真相＝`tpass-registry/services.json` 的
 > `server.opsRoot` / `server.servicesRoot`，**腳本裡不得寫死**。
 
 > ⚠️ 每個服務子專案各有自己的 `.git`。頂層 `tschool/` 是獨立的 **`tpass-ops`** git repo，

@@ -80,7 +80,7 @@
 | --- | --- |
 | `tpass-auth` | 可以發證的服務白名單（build 時讀 `../tpass-registry/services.json`） |
 | `tpass-portal` | 大廳卡片：顯示名、圖示、配色、網址（同上，build 時讀） |
-| `deploy/ecosystem.config.js` | pm2 的 app 清單（只取 `deployed:true`） |
+| 各服務 repo 的 `ecosystem.config.js` | pm2 設定（一服務一份，跟著 repo 進 git；`handoff/install.sh` 重建時讀註冊表對 port） |
 | `deploy/deploy.sh`、`scripts/tpass` | 目錄、port、DB 策略 |
 
 **不要在任何地方另外硬編碼這些資訊**——包括不要在這份文件裡再抄一張服務表。
@@ -362,7 +362,7 @@ scripts/ssh.sh '<cmd>'      # 跑單一指令
 - **不要 `sudo pm2`**。root 有自己的 pm2 daemon（`/root/.pm2`），`sudo pm2 delete xxx` 動的是那份，
   部署帳號的 pm2 完全不知道；兩份狀態並存只會讓下一個人更看不懂。
 - **不要手打 pm2 選項**（`pm2 restart <svc> --instances 2 --max-memory-restart 1G` 之類）。
-  選項的真相只有 `deploy/ecosystem.config.js`；手改過的 app 之後 `startOrReload` 救不回來，要 delete 重建。
+  選項的真相只有各服務 repo 的 `ecosystem.config.js`；手改過的 app 之後 `startOrReload` 救不回來，要 delete 重建。
   `--instances 2` 還會讓 in-memory rate limit／SSE 訂閱者分裂成兩份。
 - **不要在服務目錄手跑 `pnpm build`／`git pull`**，更不要 `sudo` 跑——`.next/`、`.git/objects/` 會變 root 擁有，
   下一次部署炸 `EACCES`。要部署就 `tpass deploy`。
@@ -436,7 +436,7 @@ scripts/tpass logs form -f     # 跟隨
 
 | monitor | 網址 | 正常回什麼 |
 | --- | --- | --- |
-| auth / portal / form / msg / appeals / notes / buddy | `https://<subdomain>.tschoolsu.org/` | auth 回 **200**，其餘六個回 **307**（未登入導去 auth） |
+| auth / portal / form / msg / appeals / meeting | `https://<subdomain>.tschoolsu.org/` | auth 回 **200**，其餘五個回 **307**（未登入導去 auth） |
 | 根網域 | `https://tschoolsu.org/` | **301** → `portal.tschoolsu.org` |
 | `backup-heartbeat` | push monitor（沒有網址） | 見下面的死人開關 |
 
@@ -547,7 +547,7 @@ Kuma 補掉了備份的死人開關，但它自己也需要一個——**它跑�
 **備份什麼是從註冊表派生的**，不是寫死的清單：`enabled && db != null` 的服務各一個 dump，
 加上任何 `enabled` 服務底下非空的 `<dir>/data/` 與 `<dir>/uploads/`。新服務上線後
 **自動被涵蓋**，不必改腳本。收兩個目錄名是因為 `data/` 是本專案的慣例（buddy 的
-`pairs.json`），而後來納管的 notes 與 meeting 把使用者上傳檔寫在 `uploads/`；
+`pairs.json`），而後來納管的 meeting 把使用者上傳檔寫在 `uploads/`；
 要再收第三個名字就改 `backup.sh` 的 `STATE_DIRS`。
 
 ```bash
@@ -700,4 +700,4 @@ tpass deploy auth                                                    # 4.
 | `tpass db setup <svc>` 卡在 `prisma migrate dev`，說沒權限建資料庫 | 已知坑：`db.mjs` 建 role 時只給 `LOGIN`，沒給 `CREATEDB`。本機 `migrate dev` 會另外開一個 shadow database 來算 migration diff，需要這個權限；正式站部署用的是 `migrate deploy`，**不建 shadow db，不需要 `CREATEDB`**，所以主機不受影響。本機解法：`psql -d postgres -c "ALTER ROLE t_<id> CREATEDB"` 補一次，冪等，之後 `tpass db setup <svc>` 就會過 |
 | 憑證過期 / 加了新子網域 | 重跑 `scripts/tpass setup`（會重生憑證） |
 | 主機重開機後服務沒起來 | `scripts/ssh.sh 'pm2 resurrect'`（正常情況 systemd 會自動做） |
-| pm2 裡根本沒這個 app | `scripts/ssh.sh 'cd ~/tpass && pm2 startOrReload deploy/ecosystem.config.js --only <id> && pm2 save'` |
+| pm2 裡根本沒這個 app | 本機 `tpass deploy <id>`（deploy.sh 的 `startOrReload` 會自動首啟） |

@@ -123,7 +123,7 @@ check_env() {
   # 於是缺 key 不是在這裡被擋下，而是 build 到收集 page data 才炸（2026-07-28 踩到）。
   keys="$(node -e '
 const fs = require("fs"), path = require("path");
-// 有 src/ 的服務在 src/config，沒有的（notes、meeting）在根目錄 config——兩處都找，掃不到＝少檢查。
+// 有 src/ 的服務在 src/config，沒有的（meeting）在根目錄 config——兩處都找，掃不到＝少檢查。
 const dir = ["src/config", "config"].map((p) => path.join(process.argv[1], p)).find((p) => fs.existsSync(p)) ?? "";
 const out = new Set();
 // tpass-auth-js 的 configFromEnv() 一定會要的五顆（第六顆是呼叫時傳進去的 <SVC>_SELF_URL）。
@@ -243,8 +243,25 @@ deploy_one() {
   # 套 schema：策略由 services.json 的 db.strategy 決定（migrate = 有 migrations 歷史）。
   case "$strategy" in
     migrate)
-      echo "   $s → prisma migrate deploy"
-      ( set -a; . "$dir/.env.local"; set +a; pnpm exec prisma migrate deploy )
+      echo "   $s → prisma migrate deploy（lock_timeout 5s）"
+      # 對線上庫跑 DDL：ALTER TABLE 要 ACCESS EXCLUSIVE 鎖。沒有 lock_timeout 時只要有一條慢查詢
+      # 卡著，migrate 就排隊等，而排在它後面的所有查詢也跟著全卡——等於部署當下重演 9/2 的
+      # 「DDL 撞流量」。給 5 秒：拿不到鎖就讓 migrate 失敗（set -e → 不 reload，舊版繼續跑），
+      # 人再跑一次 deploy 就好。Prisma 的 schema engine 吃連線字串的 options 參數（實測過），
+      # 所以不必動任何已套用的 migration 檔（改了會撞 checksum）。
+      # PostgreSQL 對失敗的 migration 會整包 rollback，但 Prisma 會把它記成 failed；
+      # 下次 deploy 撞 P3009 時照下面印的那行 resolve 一次即可。
+      (
+        set -a; . "$dir/.env.local"; set +a
+        case "$DATABASE_URL" in *\?*) sep="&" ;; *) sep="?" ;; esac
+        export DATABASE_URL="${DATABASE_URL}${sep}options=-c%20lock_timeout%3D5000"
+        pnpm exec prisma migrate deploy
+      ) || {
+        echo "❌ $s 的 migrate 失敗。若是 lock_timeout（拿不到鎖），直接重跑 tpass deploy $s；" >&2
+        echo "   若下次撞 P3009（failed migration），在主機 $dir 跑：" >&2
+        echo "   pnpm exec prisma migrate resolve --rolled-back <migration 名稱>  再重跑部署。" >&2
+        exit 1
+      }
       ;;
     push)
       echo "   $s → prisma db push（無 migrations 目錄）"
@@ -255,15 +272,15 @@ deploy_one() {
       ;;
   esac
 
-  # pm2 設定檔：各服務 repo 根目錄那份優先（2026-09-03 起的做法，port 由它自己決定）；
-  # 還沒有自己那份的 repo（目前只有 notes）退回 ops 層這份 fallback。
+  # pm2 設定檔：各服務 repo 根目錄那份（2026-09-03 起，port 由它自己決定；ops 層的
+  # fallback 已於 2026-09-04 隨 notes 下架一起刪除）。沒有就是那個 repo 還沒照範本補齊。
   eco="$dir/ecosystem.config.js"
-  start_script="$dir/pm2-start.sh"
   if [ ! -f "$eco" ]; then
-    eco="$SCRIPT_DIR/ecosystem.config.js"
-    start_script="$SCRIPT_DIR/start-service.sh"
-    echo "   ⚠️  $dir 沒有自己的 ecosystem.config.js → 用 ops 層 fallback"
+    echo "❌ $dir 缺 ecosystem.config.js——從任一個現有服務 repo 複製一份（改 name 與 port）再部署。" >&2
+    exit 1
   fi
+  # pm2 直接跑 next 本體（ecosystem 的 script），中間沒有 shell 包裝。
+  start_script="$(node -p "require('$eco').apps[0].script")"
 
   # startOrReload：既有 app zero-downtime reload；registry 新增的服務自動首次啟動。
   # 例外：pm2 reload 不會套用 ecosystem.config.js 改過的 script 路徑——程序還掛在

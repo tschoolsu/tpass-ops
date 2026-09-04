@@ -111,27 +111,6 @@
       "note": "2026-07-05 封存；port 由 3004 移至 3005 解決與 appeals 撞車"
     },
     {
-      "id": "notes",
-      "name": "T-Notes 學術部共編筆記",
-      "dir": "tpass-notes",
-      "subdomain": "notes",
-      "port": 3007,
-      "db": {
-        "name": "t_notes",
-        "user": "t_notes",
-        "strategy": "none"
-      },
-      "enabled": true,
-      "deployed": true,
-      "note": "2026-08-03 納管，2026-08-26 上線。repo tschoolsu/tpass-notes（原在 Ray1020-a 底下，已轉移）。不是 Prisma，用 pg + POSTGRES_URL，schema 由服務自己 CREATE TABLE IF NOT EXISTS，故 strategy:none。狀態檔放 uploads/ 而非慣例的 data/，backup.sh 兩者都收。尚未照慣例的部分：沒有 src/config 的 REQUIRED（deploy.sh 的 env 檢查對它是空的）、沒有 error.tsx。 2026-09-03：唯一沒有自己 ecosystem.config.js 的 pm2 服務，走 ops 層 deploy/ecosystem.config.js fallback。",
-      "portal": {
-        "label": "共編筆記",
-        "icon": "BookOpen",
-        "tone": "green",
-        "category": "service"
-      }
-    },
-    {
       "id": "vote",
       "name": "T-Vote 選舉",
       "dir": "tpass-vote",

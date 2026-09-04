@@ -6,7 +6,7 @@
 #   2. 每個 enabled 服務的 <dir>/data/ 與 <dir>/uploads/（存在且非空才打包）
 #      ——這是通用規則不是為某個服務開的特例：任何把狀態寫在這兩個目錄之一的服務
 #      都自動被涵蓋。收兩個名字是因為 data/ 是本專案的慣例（buddy 的 pairs.json），
-#      而後來納管的 notes 與 meeting 把使用者上傳檔寫在 uploads/。
+#      而後來納管的 meeting 把使用者上傳檔寫在 uploads/。
 #
 # 為什麼用各服務 .env.local 的連線字串而不是 peer auth：部署帳號的 PG role 有
 # CREATEDB/CREATEROLE 但不是 superuser，直接 `pg_dump t_form` 會是 permission denied。
@@ -122,17 +122,12 @@ while IFS='|' read -r id dir dbname; do
   - $id：主機上沒有 $dir/.env.local（未部署）"
     continue
   fi
-  # 不用 `. .env.local` —— 值含空白又沒加引號會炸（ONBOARDING 疑難排解表已有這一列），
-  # 而 notes 那份 .env.local 是 root 寫的，格式不受我們控制。逐行抽單一 key 最安全。
-  # key 名不統一：Prisma 服務是 DATABASE_URL，notes（db.strategy:"none"）是 POSTGRES_URL。
-  url=""
-  for key in DATABASE_URL POSTGRES_URL; do
-    v="$(grep -m1 "^[[:space:]]*$key=" "$envfile" 2>/dev/null | cut -d= -f2- | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//')" || true
-    if [ -n "$v" ]; then url="$v"; break; fi
-  done
+  # 不用 `. .env.local` —— 值含空白又沒加引號會炸（ONBOARDING 疑難排解表已有這一列）。
+  # 逐行抽單一 key 最安全。
+  url="$(grep -m1 "^[[:space:]]*DATABASE_URL=" "$envfile" 2>/dev/null | cut -d= -f2- | sed -e 's/^["'"'"']//' -e 's/["'"'"']$//')" || true
   if [ -z "$url" ]; then
     STEP="讀 $id 的連線字串"
-    echo "❌ $envfile 裡找不到 DATABASE_URL 或 POSTGRES_URL" >&2
+    echo "❌ $envfile 裡找不到 DATABASE_URL" >&2
     exit 1
   fi
   STEP="pg_dump $id（$dbname）"

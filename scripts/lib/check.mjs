@@ -17,7 +17,7 @@ const TPASS_AUTH_KEYS = [
 ];
 
 export function requiredEnvKeys(svc) {
-  // 有 src/ 的服務在 src/config，沒有的（notes、meeting）在根目錄 config——兩處都找，掃不到＝少檢查。
+  // 有 src/ 的服務在 src/config，沒有的（meeting）在根目錄 config——兩處都找，掃不到＝少檢查。
   const cfgDir = ["src/config", "config"].map((p) => join(repoDir(svc), p)).find((p) => existsSync(p));
   const keys = new Set();
   if (!cfgDir) return keys;
